@@ -2,7 +2,7 @@
   <img src="CurrencyConverter.png" alt="SteamCurrencyConverter" width="200" />
 </p>
 
-<h1 align="center">Steam Currency Converter/h1>
+<h1 align="center">Steam Currency Converter</h1>
 
 <p align="center">
   <strong>Расширение для браузера Chrome, которое автоматически конвертирует цены в Steam из одной валюты в другую прямо на сайте.</strong><br>
