@@ -30,4 +30,4 @@
 - **Сохраните изменения**
 - **Поставьте галочку "Включить"**
 
-> Notes: Steam Currency Converter by [toxi](https://steamcommunity.com/id/itoxi/)
+> Steam Currency Converter by [toxi](https://steamcommunity.com/id/itoxi/)
