@@ -1,0 +1,42 @@
+body, html {
+  margin: 0;
+  padding: 0;
+  width: 300px;
+  height: 81,5%;
+  font-family: Arial, sans-serif;
+}
+
+#container {
+  padding: 10px;
+  box-sizing: border-box;
+  min-height: 200px;
+  background: url("icons/bg.png") no-repeat center/cover;
+}
+
+h3 {
+  margin: 0 0 8px 0;
+  font-size: 16px;
+}
+
+.row {
+  margin: 6px 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+label {
+  font-size: 13px;
+  margin-right: 8px;
+}
+
+select, input[type="number"] {
+  font-size: 13px;
+  padding: 3px;
+}
+
+button {
+  padding: 6px 10px;
+  font-size: 13px;
+  cursor: pointer;
+}
