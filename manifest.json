@@ -1,22 +1,26 @@
 {
   "manifest_version": 3,
-  "name": "Steam Currency Converter",
-  "version": "1.0",
-  "description": "Конвертирует цены в Steam из одной валюты в другую /by toxi/",
-  "permissions": ["storage", "activeTab", "scripting"],
+  "name": "__MSG_extensionName__",
+  "description": "__MSG_extensionDescription__",
+  "version": "1.1.0",
+  "minimum_chrome_version": "120",
+  "default_locale": "en",
+  "permissions": ["storage", "alarms"],
+  "host_permissions": ["https://steam-currency.ru/*", "https://steam-rates.playwallet.bot/*"],
+  "background": {"service_worker": "background.js"},
   "action": {
+    "default_title": "Steam Currency Lens",
     "default_popup": "popup.html",
-    "default_icon": {
-      "16": "icons/icon.png",
-      "48": "icons/icon.png",
-      "128": "icons/icon.png"
-    }
+    "default_icon": {"16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png"}
   },
-  "content_scripts": [
-    {
-      "matches": ["*://store.steampowered.com/*", "*://steamcommunity.com/*"],
-      "js": ["content.js"],
-      "run_at": "document_idle"
-    }
-  ]
+  "icons": {"16": "icons/16.png", "32": "icons/32.png", "48": "icons/48.png", "128": "icons/128.png"},
+  "content_scripts": [{
+    "matches": ["https://store.steampowered.com/*", "https://steamcommunity.com/*"],
+    "js": ["shared.js", "price-parser.js", "content.js"],
+    "css": ["content.css"],
+    "run_at": "document_idle"
+  }],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src https://steam-currency.ru https://steam-rates.playwallet.bot"
+  }
 }

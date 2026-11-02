@@ -1,47 +1,85 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8">
-  <title>Steam Converter</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Steam Currency Lens</title>
   <link rel="stylesheet" href="popup.css">
+  <script src="shared.js" defer></script>
+  <script src="price-parser.js" defer></script>
+  <script src="i18n.js" defer></script>
+  <script src="theme.js" defer></script>
+  <script src="popup.js" defer></script>
 </head>
 <body>
-  <div id="container">
-    <h3 id="title" data-i18n="title">Steam Currency Converter</h3>
+  <svg class="sprite" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+    <symbol id="refresh-icon" viewBox="0 0 24 24"><path d="M20 7v5h-5M4 17v-5h5M6.1 7a7 7 0 0 1 11.6-1L20 9M4 15l2.3 3A7 7 0 0 0 18 17"/></symbol>
+    <symbol id="arrow-icon" viewBox="0 0 24 24"><path d="M4 12h16m-6-6 6 6-6 6"/></symbol>
+    <symbol id="check-icon" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol>
+    <symbol id="clock-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+    <symbol id="link-icon" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4 10 14M10 4H4v16h16v-6"/></symbol>
+  </svg>
+  <main>
+    <header class="header">
+      <div class="brand"><img src="icons/48.png" alt="" width="38" height="38"><div><h1>Currency Lens<span>for Steam</span></h1><p data-i18n="subtitle"></p></div></div>
+      <div class="header-controls"><div class="language" role="group" data-i18n-aria="language"><button id="language-ru" type="button" aria-pressed="true">RU</button><button id="language-en" type="button" aria-pressed="false">EN</button></div><label class="switch" data-i18n-title="enabled"><input id="enabled" type="checkbox" role="switch" data-i18n-aria="enabled"><span></span></label></div>
+    </header>
 
-    <div class="row">
-      <label id="lblEnabled" data-i18n="labelEnabled">Включить:</label>
-      <input type="checkbox" id="enabled">
-    </div>
+    <nav class="tabs" role="tablist"><button id="prices-tab" class="active" role="tab" aria-controls="prices-panel" aria-selected="true" data-i18n="prices"></button><button id="settings-tab" role="tab" aria-controls="settings-panel" aria-selected="false" data-i18n="settings"></button></nav>
 
-    <div class="row">
-      <label id="lblFrom" data-i18n="labelFrom">Из валюты:</label>
-      <select id="from"></select>
-    </div>
+    <section id="prices-panel" role="tabpanel" aria-labelledby="prices-tab">
+      <section class="rate-card">
+        <div class="card-top"><span class="eyebrow" data-i18n="internalRate"></span><span id="mode-badge" class="badge"><span></span><b></b></span></div>
+        <div class="pair-grid">
+          <label><span data-i18n="from"></span><select id="source-currency" data-i18n-aria="from"></select></label>
+          <svg class="pair-arrow"><use href="#arrow-icon"/></svg>
+          <label><span data-i18n="to"></span><select id="target-currency" data-i18n-aria="to"></select></label>
+        </div>
+        <div class="rate-value" aria-live="polite"><span id="unit-value">1 ₸</span><span class="rate-equals">=</span><strong id="rate-value">—</strong></div>
+        <div class="rate-bottom"><div><span id="rate-status"></span><small id="provider-date"></small></div><button id="refresh" class="icon-button" type="button" data-i18n-title="refresh" data-i18n-aria="refresh"><svg><use href="#refresh-icon"/></svg></button></div>
+      </section>
+      <p id="error" class="error" role="status" hidden></p>
 
-    <div class="row">
-      <label id="lblTo" data-i18n="labelTo">В валюту:</label>
-      <select id="to"></select>
-    </div>
+      <section class="manual-card">
+        <div class="setting-row"><div class="row-copy"><strong data-i18n="manualToggle"></strong><small data-i18n="manualHint"></small></div><label class="switch"><input id="manual-enabled" type="checkbox" role="switch" data-i18n-aria="manualToggle"><span></span></label></div>
+        <div id="manual-fields" hidden><label class="field-label" id="manual-unit" for="manual-rate"></label><div class="manual-input-wrap"><input id="manual-rate" type="text" inputmode="decimal" autocomplete="off" maxlength="40" placeholder="0.1871"><span id="manual-target"></span></div><p id="manual-validation" class="validation" hidden data-i18n="validRate"></p><p id="manual-only" class="small-note"></p></div>
+      </section>
 
-    <div class="row">
-      <label id="lblRate" data-i18n="labelRate">Курс:</label>
-      <input type="number" step="0.0001" id="rate" style="width:100px">
-    </div>
+      <section class="calculator-card">
+        <div class="calculator-header"><strong data-i18n="calculator"></strong><span id="calculator-source"></span></div>
+        <div class="calculator-grid"><input id="calculator-amount" type="text" inputmode="decimal" value="1000" maxlength="24" data-i18n-aria="amount"><svg><use href="#arrow-icon"/></svg><output id="calculator-result" for="calculator-amount" data-i18n-aria="result">—</output></div>
+      </section>
+      <footer><div class="page-status"><span class="status-dot"></span><span id="page-stats"></span></div><div class="footer-bottom"><p data-i18n="footer"></p><a class="author-link" href="https://steamcommunity.com/id/itoxi/" target="_blank" rel="noopener noreferrer">by toxi</a></div></footer>
+    </section>
 
-    <div class="row">
-      <label id="lblLang" data-i18n="labelLang">Язык:</label>
-      <select id="lang">
-        <option value="ru">Русский</option>
-        <option value="en">English</option>
-      </select>
-    </div>
-
-    <div style="margin-top:8px; display:flex; justify-content:space-between;">
-      <button id="save" data-i18n="btnSave">Сохранить</button>
-      <button id="reset" data-i18n="btnReset">Сброс</button>
-    </div>
-  </div>
-  <script src="popup.js"></script>
+    <section id="settings-panel" role="tabpanel" aria-labelledby="settings-tab" hidden>
+      <section class="settings-card">
+        <div class="settings-block"><strong data-i18n="precision"></strong><small data-i18n="precisionHint"></small><div class="precision" role="group" data-i18n-aria="precision"><button type="button" data-precision="0">0</button><button type="button" data-precision="2">2</button><button type="button" data-precision="auto" data-i18n="autoDigits"></button></div></div>
+        <div class="dual-block">
+          <div class="setting-row"><div class="row-copy"><strong data-i18n="dual"></strong><small data-i18n="dualHint"></small></div><label class="switch"><input id="dual-prices" type="checkbox" role="switch" data-i18n-aria="dual"><span></span></label></div>
+          <div class="dual-preview" aria-hidden="true">
+            <div class="dual-line"><span class="dual-pair"><span class="dual-original" id="dual-plain-original"></span><span class="dual-converted" id="dual-plain-converted"></span></span></div>
+            <div class="dual-line"><span class="dual-pct">-50%</span><s class="dual-old" id="dual-old-converted"></s><span class="dual-pair"><span class="dual-original" id="dual-sale-original"></span><span class="dual-converted" id="dual-sale-converted"></span></span></div>
+          </div>
+        </div>
+        <div class="setting-row" id="tooltips-row"><div class="row-copy"><strong data-i18n="tooltips"></strong><small id="tooltips-hint"></small></div><label class="switch"><input id="tooltips" type="checkbox" role="switch" data-i18n-aria="tooltips"><span></span></label></div>
+        <div class="theme-block">
+          <div class="row-copy"><strong data-i18n="theme"></strong><small data-i18n="themeHint"></small></div>
+          <div class="theme-options">
+            <div id="swatches" class="swatches" role="group" data-i18n-aria="theme"></div>
+            <button id="custom-color" class="custom-color" type="button" aria-expanded="false" aria-controls="color-picker"><span class="custom-dot"></span><span data-i18n="customColor"></span></button>
+          </div>
+          <div id="color-picker" class="color-picker" role="dialog" data-i18n-aria="customColor" hidden>
+            <div id="sv-area" class="sv-area" tabindex="0" role="slider" aria-valuemin="0" aria-valuemax="100" data-i18n-aria="saturation"><svg id="sv-mask" class="sv-mask" aria-hidden="true"><defs><pattern id="sv-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)"><rect width="6" height="6" fill="#090d16b8"/><path d="M0 0v6"/></pattern></defs><path id="sv-mask-fill" fill="url(#sv-hatch)"/><path id="sv-mask-line" class="sv-mask-line"/></svg><span id="sv-thumb" class="sv-thumb"></span></div>
+            <input id="hue" class="hue" type="range" min="0" max="359" step="1" value="0" data-i18n-aria="hue">
+            <div class="picker-row"><span class="picker-preview"></span><input id="hex-input" class="hex-input" type="text" maxlength="7" spellcheck="false" autocomplete="off" data-i18n-aria="hex"><button id="picker-done" class="picker-done" type="button" data-i18n="done"></button></div>
+            <p id="picker-note" class="picker-note" data-i18n="tooDark" hidden></p>
+          </div>
+        </div>
+      </section>
+      <section class="cache-card"><svg><use href="#clock-icon"/></svg><div><strong data-i18n="cacheTitle"></strong><p data-i18n="cacheHint"></p></div></section>
+      <section id="source-card" class="source-card" hidden><span class="eyebrow" data-i18n="source"></span><a class="source-link" href="https://steam-currency.ru/" target="_blank" rel="noopener noreferrer"><strong>steam-currency.ru</strong><svg><use href="#link-icon"/></svg></a></section>
+    </section>
+  </main>
 </body>
 </html>
