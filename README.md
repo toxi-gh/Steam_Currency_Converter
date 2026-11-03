@@ -8,23 +8,37 @@
 
 ![Manifest V3](https://img.shields.io/badge/Manifest-V3-62eed4?style=flat-square&labelColor=0c111d)
 ![Chrome 120+](https://img.shields.io/badge/Chrome-120%2B-62eed4?style=flat-square&logo=googlechrome&logoColor=white&labelColor=0c111d)
-![Languages](https://img.shields.io/badge/UI-RU%20%7C%20EN-62eed4?style=flat-square&labelColor=0c111d)
+![Languages](https://img.shields.io/badge/languages-8-62eed4?style=flat-square&labelColor=0c111d)
+![Currencies](https://img.shields.io/badge/currencies-37-62eed4?style=flat-square&labelColor=0c111d)
 
-<img src="docs/images/hero.png" alt="Extension popup: Prices and Settings tabs" width="860">
+<img src="docs/images/hero.png" alt="Extension popup: main screen, currency calculator and settings" width="900">
 
 </div>
 
 ## Features
 
 - **Automatic conversion** of prices in the Steam Store and on the Community Market, including content that loads dynamically.
-- **Dual price display.** The original and converted prices are shown side by side: `1,000 ₸ · 187.10 ₽`. Discounts and struck-through prices are handled too.
-- **Original price on hover.** A tooltip shows the original price and the rate used to convert it.
-- **Steam's internal exchange rate.** Rates come from [steam-currency.ru](https://steam-currency.ru/), with [PlayWallet](https://playwallet.bot/steam-currency) as a fallback when the site is unavailable.
+- **Three ways to show prices:**
+  - **Dual display.** The original and converted prices side by side: `1,000 ₸ · 1.98 $`.
+  - **Original on hover.** The converted price, with the original in a tooltip.
+  - **Converted price only.**
+
+  Discounts and struck-through prices are handled in every mode.
+- **Steam's internal exchange rate** from [steam-currency.ru](https://steam-currency.ru/), with [PlayWallet](https://playwallet.bot/steam-currency) as a fallback.
 - **Manual rate** for a chosen currency pair, if you prefer to use your own.
-- **Quick calculator** right in the extension popup.
-- **Rounding**: 0 or 2 decimal places, or the currency's default.
-- **39 Steam currencies**, with the interface in Russian and English.
-- **Theme color**: 6 preset colors or any custom color from the palette.
+- **Currency calculator.** Convert any amount into your main currency and up to six more at once. Drag rows to reorder them, and copy any result with one click.
+- **Quick calculator** right on the main screen.
+- **Rounding:** 0 or 2 decimal places, or the currency's default.
+- **Theme color:** six presets or any custom color. The background always stays dark, and the toolbar icon follows the theme. When conversion is off, the icon turns gray.
+- **37 Steam currencies.** The interface comes in 8 languages: English, Русский, 简体中文, Español, Português (Brasil), 日本語, Deutsch, Polski.
+
+## First launch
+
+On first launch, a short setup walks you through four steps: interface language, currencies, price display and a summary. It stays on screen until you finish it, and everything can be changed later in Settings.
+
+<div align="center">
+<img src="docs/images/setup.png" alt="First-run setup in four steps" width="900">
+</div>
 
 ## Installation
 
@@ -46,6 +60,7 @@ Chrome 120 or later is required. In Edge, Brave, Opera and Yandex Browser, the u
 | Fetching the rate | The steam-currency.ru widget first, then the site's rate table, then PlayWallet. |
 | Cache | Rates are stored locally for 6 hours. If a request fails, it is retried after 15 minutes, and the last saved rate is used in the meantime. |
 | Conversion | Prices on the page are replaced on the fly. The number of converted prices is shown in the extension popup. |
+| Calculator | Rates for the extra currencies are fetched the same way and cached alongside the main one. |
 
 > [!NOTE]
 > Converted prices are estimates. The currency Steam charges you in does not change.
@@ -55,7 +70,9 @@ Chrome 120 or later is required. In Edge, Brave, Opera and Yandex Browser, the u
 
 <br>
 
-`RUB` `KZT` `USD` `EUR` `UAH` `GBP` `BRL` `AUD` `CAD` `JPY` `KRW` `SGD` `CNY` `INR` `ILS` `CHF` `PLN` `NOK` `IDR` `MYR` `PHP` `THB` `VND` `MXN` `NZD` `CLP` `PEN` `COP` `ZAR` `HKD` `TWD` `SAR` `AED` `KWD` `QAR` `CRC` `UYU` `TRY` `ARS`
+`RUB` `KZT` `USD` `EUR` `UAH` `GBP` `BRL` `AUD` `CAD` `JPY` `KRW` `SGD` `CNY` `INR` `ILS` `CHF` `PLN` `NOK` `IDR` `MYR` `PHP` `THB` `VND` `MXN` `NZD` `CLP` `PEN` `COP` `ZAR` `HKD` `TWD` `SAR` `AED` `KWD` `QAR` `CRC` `UYU`
+
+These are all the local currencies the Steam Store uses today. Regions priced in regional USD, such as Turkey and Argentina, are treated as USD.
 
 </details>
 
@@ -74,22 +91,22 @@ The extension collects no data, uses no analytics and sends no cookies: requests
 
 ```
 ├── manifest.json         Manifest (MV3)
-├── background.js         Service worker: fetching rates, cache, retries
+├── background.js         Service worker: fetching rates, cache, retries, toolbar icon
 ├── rate-source.js        Parsing steam-currency.ru and PlayWallet responses
 ├── content.js            Finding and converting prices on Steam pages
 ├── content.css           Styles for dual prices on the page
 ├── price-parser.js       Recognizing prices and amounts
-├── shared.js             Currencies, settings, formatting
-├── popup.html/.css/.js   Extension popup
-├── theme.js              Color themes and palette
+├── shared.js             Currencies, languages, settings, formatting
+├── popup.html/.css/.js   Extension popup, calculator and first-run setup
+├── theme.js              Theme colors, color picker and icon tinting
 ├── i18n.js               Interface translations
-├── _locales/             Name and description for Chrome
+├── _locales/             Name and description for Chrome in 8 languages
 ├── icons/                Extension icons
 └── docs/images/          Images for the README
 ```
 
-No build step needed: plain JavaScript with no dependencies.
+No build step needed: plain JavaScript with no dependencies. After making changes, click **Reload** on the extension card in `chrome://extensions`.
 
 ## Author
 
-Made by [toxi](https://steamcommunity.com/id/itoxi/).
+Made by [toxi](https://steamcommunity.com/id/itoxi/). Report bugs and suggest ideas in [Issues](../../issues).

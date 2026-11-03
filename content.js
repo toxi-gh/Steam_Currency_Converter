@@ -469,6 +469,7 @@
       .original .current { color: #eff6ff; }
       .rate { margin-top: 7px; color: #a2b4c9; font-size: 11px; white-space: pre-line; }
       .note { margin-top: 5px; color: #e7bd78; font-size: 11px; }
+      .note:empty { display: none; }
       @media (prefers-reduced-motion: no-preference) { .box { animation: appear .12s ease-out; } @keyframes appear { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } } }
     `;
     const box = document.createElement("div");
@@ -630,14 +631,14 @@
     tooltip ||= createTooltip();
     const {element, prices} = model || tooltipPrices(target, scope);
     if (!prices.length) return hideTooltip();
-    const ru = state.settings.language === "ru";
-    tooltip.label.textContent = prices.length > 1 ? (ru ? "Оригинальные цены" : "Original prices") : (ru ? "Оригинальная цена" : "Original price");
+    const t = key => SteamFXI18n.translate(state.settings.language, key);
+    tooltip.label.textContent = t(prices.length > 1 ? "tipLabels" : "tipLabel");
     const hasDiscount = prices.some(match => match.kind === "original") && prices.some(match => match.kind === "current");
     tooltip.original.replaceChildren(...prices.flatMap((match, index) => {
       const price = document.createElement(hasDiscount && match.kind === "original" ? "s" : "span");
       price.className = match.kind;
       price.textContent = match.original.trim();
-      if (hasDiscount) price.setAttribute("aria-label", `${match.kind === "original" ? (ru ? "Цена до скидки" : "Price before discount") : (ru ? "Цена со скидкой" : "Discounted price")}: ${price.textContent}`);
+      if (hasDiscount) price.setAttribute("aria-label", `${t(match.kind === "original" ? "tipBefore" : "tipDiscounted")}: ${price.textContent}`);
       return index ? [document.createTextNode(" "), price] : [price];
     }));
     const seen = new Set();
@@ -648,8 +649,7 @@
     }).map(match => `1 ${match.currency} = ${SteamFX.formatRate(match.rate.rate, state.settings.language)} ${state.settings.targetCurrency}`).join("\n");
     const stale = prices.some(match => SteamFX.resolveRate(state, match.currency)?.stale);
     const manual = state.settings.manualEnabled;
-    const providers = [...new Set(prices.filter(match => ["widget", "table", "playwallet"].includes(match.rate?.source)).map(match => match.rate.source === "playwallet" ? "playwallet.bot" : "steam-currency.ru"))].join(" · ");
-    tooltip.note.textContent = stale ? (ru ? "Последний сохранённый курс: обновление недоступно" : "Last saved rate: update unavailable") : manual ? (ru ? "Ручной курс" : "Manual rate") : providers;
+    tooltip.note.textContent = stale ? t("tipStale") : manual ? t("tipManual") : "";
     tooltip.host.setAttribute("data-visible", "");
     hovered = {group, element, revision: sourceRevision};
     positionTooltip();

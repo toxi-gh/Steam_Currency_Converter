@@ -1,6 +1,6 @@
 "use strict";
 
-importScripts("shared.js", "rate-source.js");
+importScripts("shared.js", "rate-source.js", "theme.js");
 
 const TTL = 6 * 60 * 60 * 1000;
 const RETRY_DELAY = 15 * 60 * 1000;
@@ -13,6 +13,10 @@ let writeQueue = Promise.resolve();
 let requestQueue = Promise.resolve();
 let alarmQueue = Promise.resolve();
 let requestEpoch = 0;
+const ICON_SIZES = [16, 32];
+let iconBase = null;
+let iconKey = "";
+let iconQueue = Promise.resolve();
 
 async function settingsNow() {
   const {settings} = await chrome.storage.local.get("settings");
@@ -62,9 +66,9 @@ function usableSnapshot(value, key) {
   return value.pairs && Object.keys(value.pairs).length > 0 && Object.entries(value.pairs).every(([pair, row]) => validPair(pair) && SteamFX.positiveRate(row?.rate) && typeof row.providerUpdatedAt === "string" && Number.isFinite(Date.parse(row.providerUpdatedAt)));
 }
 
-async function currentPair(target, epoch) {
+async function currentPair(target, epoch, free = false) {
   const settings = await settingsNow();
-  return epoch === requestEpoch && isAutomatic(settings) && settings.targetCurrency === target;
+  return epoch === requestEpoch && isAutomatic(settings) && (free || settings.targetCurrency === target);
 }
 
 function failureRecord(error) {
@@ -185,7 +189,7 @@ async function obtainPair(source, target, force) {
   return SteamFXSource.playWalletPair(rates, source, target);
 }
 
-function ensurePair(source, target, force) {
+function ensurePair(source, target, force, free = false) {
   const key = SteamFX.pairKey(source, target);
   const pending = inFlight.get(key);
   if (pending?.epoch === requestEpoch) return pending.task;
@@ -197,13 +201,13 @@ function ensurePair(source, target, force) {
     const failed = validFailure(failure) && failure.version === 2 && (!validEntry(entry) || failure.at >= entry.fetchedAt);
     if (validEntry(entry) && fresh(entry, force) && !failed) return;
     if (failed && Date.now() < (force ? failure.at + REFRESH_COOLDOWN : failure.retryAt)) return;
-    if (!await currentPair(target, epoch)) return;
+    if (!await currentPair(target, epoch, free)) return;
     const operation = requestQueue.then(async () => {
-      if (!await currentPair(target, epoch)) return;
+      if (!await currentPair(target, epoch, free)) return;
       try {
         const result = await obtainPair(source, target, force || failed && validEntry(entry));
-        if (!await currentPair(target, epoch)) return;
-        const saved = await updateStored("rateCache", async value => await currentPair(target, epoch) ? {version: 1, entries: {...value?.entries, [key]: {...result, fetchedAt: result.fetchedAt || Date.now()}}} : undefined);
+        if (!await currentPair(target, epoch, free)) return;
+        const saved = await updateStored("rateCache", async value => await currentPair(target, epoch, free) ? {version: 1, entries: {...value?.entries, [key]: {...result, fetchedAt: result.fetchedAt || Date.now()}}} : undefined);
         if (!saved) return;
         await updateStored("rateFailures", value => {
           const next = {...value};
@@ -211,7 +215,7 @@ function ensurePair(source, target, force) {
           return next;
         });
       } catch (error) {
-        if (error.message === "CANCELLED" || !await currentPair(target, epoch)) return;
+        if (error.message === "CANCELLED" || !await currentPair(target, epoch, free)) return;
         await updateStored("rateFailures", value => ({...value, [key]: {...failureRecord(error), version: 2}}));
       }
     });
@@ -267,6 +271,15 @@ async function loadState(sources, force = false) {
   return {settings: SteamFX.normalizeSettings(stored.settings), rateCache: stored.rateCache || {version: 1, entries: {}}, rateFailures: stored.rateFailures || {}};
 }
 
+async function loadPairs(pairs, force = false) {
+  const settings = await settingsNow();
+  const requested = Array.isArray(pairs) ? pairs : [];
+  const valid = [...new Set(requested.filter(pair => Array.isArray(pair) && pair.length === 2).map(([source, target]) => SteamFX.pairKey(source, target)))].filter(validPair).slice(0, SteamFX.calcLimit + 1);
+  if (isAutomatic(settings)) await Promise.all(valid.map(key => ensurePair(...key.split(":"), force, true)));
+  const stored = await chrome.storage.local.get(["settings", "rateCache", "rateFailures"]);
+  return {settings: SteamFX.normalizeSettings(stored.settings), rateCache: stored.rateCache || {version: 1, entries: {}}, rateFailures: stored.rateFailures || {}};
+}
+
 function allowedSender(sender) {
   if (sender.id !== chrome.runtime.id) return false;
   try {
@@ -278,20 +291,66 @@ function allowedSender(sender) {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
-  if (!allowedSender(sender) || !["GET_STATE", "REFRESH_RATES", "UPDATE_SETTINGS"].includes(message?.type)) return false;
+  if (!allowedSender(sender) || !["GET_STATE", "REFRESH_RATES", "UPDATE_SETTINGS", "GET_PAIRS"].includes(message?.type)) return false;
   if (message.type !== "GET_STATE" && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return false;
   if (message.type === "UPDATE_SETTINGS") {
     updateSettings(message.patch).then(settings => respond({ok: true, settings})).catch(() => respond({ok: false, error: "STORAGE"}));
+    return true;
+  }
+  if (message.type === "GET_PAIRS") {
+    loadPairs(message.pairs, message.force === true).then(state => respond({ok: true, state})).catch(() => respond({ok: false, error: "STORAGE"}));
     return true;
   }
   loadState(message.sources, message.type === "REFRESH_RATES").then(state => respond({ok: true, state})).catch(() => respond({ok: false, error: "STORAGE"}));
   return true;
 });
 
+function iconImages() {
+  iconBase ||= Promise.all(ICON_SIZES.map(async size => {
+    const response = await fetch(chrome.runtime.getURL(`icons/${size}.png`));
+    const bitmap = await createImageBitmap(await response.blob());
+    const canvas = new OffscreenCanvas(size, size);
+    const context = canvas.getContext("2d", {willReadFrequently: true});
+    context.drawImage(bitmap, 0, 0, size, size);
+    bitmap.close();
+    return [size, context.getImageData(0, 0, size, size).data];
+  })).catch(error => {
+    iconBase = null;
+    throw error;
+  });
+  return iconBase;
+}
+
+async function applyIcon(settings) {
+  const accent = SteamFXTheme.ensureReadable(settings.accentColor);
+  const key = settings.enabled ? accent : "off";
+  if (key === iconKey) return;
+  if (settings.enabled && accent === SteamFXTheme.defaultColor) {
+    await chrome.action.setIcon({path: Object.fromEntries(ICON_SIZES.map(size => [size, `icons/${size}.png`]))});
+  } else {
+    const images = await iconImages();
+    const imageData = Object.fromEntries(images.map(([size, base]) => {
+      const data = new Uint8ClampedArray(base);
+      if (settings.enabled) SteamFXTheme.tintPixels(data, accent);
+      else SteamFXTheme.grayPixels(data);
+      return [size, new ImageData(data, size, size)];
+    }));
+    await chrome.action.setIcon({imageData});
+  }
+  iconKey = key;
+}
+
+function refreshIcon(settings) {
+  const task = iconQueue.then(async () => applyIcon(settings || await settingsNow()));
+  iconQueue = task.catch(() => {});
+  return task;
+}
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes.settings) return;
   const settings = SteamFX.normalizeSettings(changes.settings.newValue);
   const previous = SteamFX.normalizeSettings(changes.settings.oldValue);
+  refreshIcon(settings).catch(() => {});
   const changed = previous.enabled !== settings.enabled || previous.manualEnabled !== settings.manualEnabled || previous.targetCurrency !== settings.targetCurrency;
   if (changed) requestEpoch++;
   if (!isAutomatic(settings) || changed) for (const controller of controllers) controller.abort(new Error("CANCELLED"));
@@ -306,8 +365,23 @@ chrome.alarms.onAlarm.addListener(alarm => {
   }).catch(() => {});
 });
 
+function prunePairs(value, valid) {
+  if (!value || typeof value !== "object") return value;
+  return Object.fromEntries(Object.entries(value).filter(([key, entry]) => validPair(key) && valid(entry)));
+}
+
 chrome.runtime.onInstalled.addListener(() => {
-  updateStored("settings", SteamFX.normalizeSettings).then(scheduleRefresh).catch(() => {});
+  updateStored("rateCache", value => value?.entries ? {...value, entries: prunePairs(value.entries, validEntry)} : undefined).catch(() => {});
+  updateStored("rateFailures", value => value && typeof value === "object" ? prunePairs(value, validFailure) : undefined).catch(() => {});
+  updateStored("settings", SteamFX.normalizeSettings).then(() => {
+    refreshIcon().catch(() => {});
+    return scheduleRefresh();
+  }).catch(() => {});
 });
 
-chrome.runtime.onStartup.addListener(() => scheduleRefresh().catch(() => {}));
+chrome.runtime.onStartup.addListener(() => {
+  refreshIcon().catch(() => {});
+  scheduleRefresh().catch(() => {});
+});
+
+refreshIcon().catch(() => {});

@@ -2,59 +2,105 @@
   "use strict";
 
   const currencies = Object.freeze({
-    RUB: {id: 5, symbol: "₽", ru: "Российский рубль", en: "Russian ruble"},
-    KZT: {id: 37, symbol: "₸", ru: "Казахстанский тенге", en: "Kazakhstani tenge"},
-    USD: {id: 1, symbol: "$", ru: "Доллар США", en: "US dollar"},
-    EUR: {id: 3, symbol: "€", ru: "Евро", en: "Euro"},
-    UAH: {id: 18, symbol: "₴", ru: "Украинская гривна", en: "Ukrainian hryvnia"},
-    GBP: {id: 2, symbol: "£", ru: "Британский фунт", en: "British pound"},
-    BRL: {id: 7, symbol: "R$", ru: "Бразильский реал", en: "Brazilian real"},
-    AUD: {id: 21, symbol: "A$", ru: "Австралийский доллар", en: "Australian dollar"},
-    CAD: {id: 20, symbol: "CDN$", ru: "Канадский доллар", en: "Canadian dollar"},
-    JPY: {id: 8, symbol: "¥", ru: "Японская иена", en: "Japanese yen"},
-    KRW: {id: 16, symbol: "₩", ru: "Южнокорейская вона", en: "South Korean won"},
-    SGD: {id: 13, symbol: "S$", ru: "Сингапурский доллар", en: "Singapore dollar"},
-    CNY: {id: 23, symbol: "CN¥", ru: "Китайский юань", en: "Chinese yuan"},
-    INR: {id: 24, symbol: "₹", ru: "Индийская рупия", en: "Indian rupee"},
-    ILS: {id: 35, symbol: "₪", ru: "Израильский шекель", en: "Israeli shekel"},
-    CHF: {id: 4, symbol: "CHF", ru: "Швейцарский франк", en: "Swiss franc"},
-    PLN: {id: 6, symbol: "zł", ru: "Польский злотый", en: "Polish zloty"},
-    NOK: {id: 9, symbol: "kr", ru: "Норвежская крона", en: "Norwegian krone"},
-    IDR: {id: 10, symbol: "Rp", ru: "Индонезийская рупия", en: "Indonesian rupiah"},
-    MYR: {id: 11, symbol: "RM", ru: "Малайзийский ринггит", en: "Malaysian ringgit"},
-    PHP: {id: 12, symbol: "P", ru: "Филиппинское песо", en: "Philippine peso"},
-    THB: {id: 14, symbol: "฿", ru: "Тайский бат", en: "Thai baht"},
-    VND: {id: 15, symbol: "₫", ru: "Вьетнамский донг", en: "Vietnamese dong"},
-    MXN: {id: 19, symbol: "Mex$", ru: "Мексиканское песо", en: "Mexican peso"},
-    NZD: {id: 22, symbol: "NZ$", ru: "Новозеландский доллар", en: "New Zealand dollar"},
-    CLP: {id: 25, symbol: "CLP$", ru: "Чилийское песо", en: "Chilean peso"},
-    PEN: {id: 26, symbol: "S/.", ru: "Перуанский соль", en: "Peruvian sol"},
-    COP: {id: 27, symbol: "COL$", ru: "Колумбийское песо", en: "Colombian peso"},
-    ZAR: {id: 28, symbol: "R", ru: "Южноафриканский рэнд", en: "South African rand"},
-    HKD: {id: 29, symbol: "HK$", ru: "Гонконгский доллар", en: "Hong Kong dollar"},
-    TWD: {id: 30, symbol: "NT$", ru: "Новый тайваньский доллар", en: "New Taiwan dollar"},
-    SAR: {id: 31, symbol: "SR", ru: "Саудовский риял", en: "Saudi riyal"},
-    AED: {id: 32, symbol: "AED", ru: "Дирхам ОАЭ", en: "UAE dirham"},
-    KWD: {id: 38, symbol: "KD", ru: "Кувейтский динар", en: "Kuwaiti dinar"},
-    QAR: {id: 39, symbol: "QR", ru: "Катарский риял", en: "Qatari riyal"},
-    CRC: {id: 40, symbol: "₡", ru: "Костариканский колон", en: "Costa Rican colon"},
-    UYU: {id: 41, symbol: "$U", ru: "Уругвайское песо", en: "Uruguayan peso"},
-    TRY: {id: 17, symbol: "TL", ru: "Турецкая лира", en: "Turkish lira"},
-    ARS: {id: 34, symbol: "ARS$", ru: "Аргентинское песо", en: "Argentine peso"}
+    RUB: {id: 5, symbol: "₽"},
+    KZT: {id: 37, symbol: "₸"},
+    USD: {id: 1, symbol: "$"},
+    EUR: {id: 3, symbol: "€"},
+    UAH: {id: 18, symbol: "₴"},
+    GBP: {id: 2, symbol: "£"},
+    BRL: {id: 7, symbol: "R$"},
+    AUD: {id: 21, symbol: "A$"},
+    CAD: {id: 20, symbol: "CDN$"},
+    JPY: {id: 8, symbol: "¥"},
+    KRW: {id: 16, symbol: "₩"},
+    SGD: {id: 13, symbol: "S$"},
+    CNY: {id: 23, symbol: "CN¥"},
+    INR: {id: 24, symbol: "₹"},
+    ILS: {id: 35, symbol: "₪"},
+    CHF: {id: 4, symbol: "CHF"},
+    PLN: {id: 6, symbol: "zł"},
+    NOK: {id: 9, symbol: "kr"},
+    IDR: {id: 10, symbol: "Rp"},
+    MYR: {id: 11, symbol: "RM"},
+    PHP: {id: 12, symbol: "P"},
+    THB: {id: 14, symbol: "฿"},
+    VND: {id: 15, symbol: "₫"},
+    MXN: {id: 19, symbol: "Mex$"},
+    NZD: {id: 22, symbol: "NZ$"},
+    CLP: {id: 25, symbol: "CLP$"},
+    PEN: {id: 26, symbol: "S/."},
+    COP: {id: 27, symbol: "COL$"},
+    ZAR: {id: 28, symbol: "R"},
+    HKD: {id: 29, symbol: "HK$"},
+    TWD: {id: 30, symbol: "NT$"},
+    SAR: {id: 31, symbol: "SR"},
+    AED: {id: 32, symbol: "AED"},
+    KWD: {id: 38, symbol: "KD"},
+    QAR: {id: 39, symbol: "QR"},
+    CRC: {id: 40, symbol: "₡"},
+    UYU: {id: 41, symbol: "$U"}
   });
+
+  const languages = Object.freeze({
+    en: "English",
+    ru: "Русский",
+    "zh-CN": "简体中文",
+    es: "Español",
+    "pt-BR": "Português (Brasil)",
+    ja: "日本語",
+    de: "Deutsch",
+    pl: "Polski"
+  });
+
+  const locales = Object.freeze({en: "en-US", ru: "ru-RU", "zh-CN": "zh-CN", es: "es-ES", "pt-BR": "pt-BR", ja: "ja-JP", de: "de-DE", pl: "pl-PL"});
+
+  const languageCurrencies = Object.freeze({en: "USD", ru: "RUB", "zh-CN": "CNY", es: "EUR", "pt-BR": "BRL", ja: "JPY", de: "EUR", pl: "PLN"});
+
+  function isLanguage(code) {
+    return typeof code === "string" && Object.hasOwn(languages, code);
+  }
+
+  function detectLanguage() {
+    const preferred = typeof navigator === "object" ? [...(navigator.languages || []), navigator.language] : [];
+    for (const value of preferred) {
+      if (typeof value !== "string" || !value) continue;
+      const [base, region] = value.split(/[-_]/);
+      const language = base.toLowerCase();
+      if (language === "zh") return "zh-CN";
+      if (language === "pt") return "pt-BR";
+      const exact = `${language}${region ? `-${region.toUpperCase()}` : ""}`;
+      if (isLanguage(exact)) return exact;
+      if (isLanguage(language)) return language;
+    }
+    return "en";
+  }
+
+  function currencyFor(language) {
+    return languageCurrencies[language] || "USD";
+  }
+
+  const detectedLanguage = detectLanguage();
 
   const defaults = Object.freeze({
     enabled: true,
-    language: "ru",
-    targetCurrency: "RUB",
+    language: detectedLanguage,
+    targetCurrency: currencyFor(detectedLanguage),
     manualEnabled: false,
     manualSourceCurrency: "KZT",
     manualRate: "",
     precision: "2",
     tooltips: true,
     dualPrices: true,
-    accentColor: "#62eed4"
+    accentColor: "#62eed4",
+    setupDone: false,
+    setupStep: 0,
+    calcSource: "KZT",
+    calcCurrencies: Object.freeze(["USD", "EUR", "KZT", "CNY", "UAH"])
   });
+
+  const calcLimit = 6;
+
+  const setupSteps = 4;
 
   function isCurrency(code) {
     return typeof code === "string" && Object.hasOwn(currencies, code);
@@ -70,18 +116,53 @@
 
   function normalizeSettings(value = {}) {
     if (!value || typeof value !== "object") value = {};
+    const language = isLanguage(value.language) ? value.language : defaults.language;
+    const step = Number(value.setupStep);
+    const target = isCurrency(value.targetCurrency) ? value.targetCurrency : currencyFor(language);
+    const list = Array.isArray(value.calcCurrencies) ? [...new Set(value.calcCurrencies.filter(isCurrency))] : [...defaults.calcCurrencies];
+    let extras = 0;
     return {
       enabled: typeof value.enabled === "boolean" ? value.enabled : defaults.enabled,
-      language: value.language === "en" ? "en" : "ru",
-      targetCurrency: isCurrency(value.targetCurrency) ? value.targetCurrency : defaults.targetCurrency,
+      language,
+      targetCurrency: target,
       manualEnabled: typeof value.manualEnabled === "boolean" ? value.manualEnabled : false,
-      manualSourceCurrency: isCurrency(value.manualSourceCurrency) ? value.manualSourceCurrency : "KZT",
+      manualSourceCurrency: isCurrency(value.manualSourceCurrency) ? value.manualSourceCurrency : defaults.manualSourceCurrency,
       manualRate: typeof value.manualRate === "string" || typeof value.manualRate === "number" ? String(value.manualRate).slice(0, 40) : "",
       precision: ["0", "2", "auto"].includes(String(value.precision)) ? String(value.precision) : "2",
       tooltips: typeof value.tooltips === "boolean" ? value.tooltips : true,
       dualPrices: typeof value.dualPrices === "boolean" ? value.dualPrices : defaults.dualPrices,
-      accentColor: typeof value.accentColor === "string" && /^#[0-9a-f]{6}$/i.test(value.accentColor) ? value.accentColor.toLowerCase() : defaults.accentColor
+      accentColor: typeof value.accentColor === "string" && /^#[0-9a-f]{6}$/i.test(value.accentColor) ? value.accentColor.toLowerCase() : defaults.accentColor,
+      setupDone: typeof value.setupDone === "boolean" ? value.setupDone : Object.keys(value).length > 0,
+      setupStep: Number.isInteger(step) && step >= 0 && step < setupSteps ? step : 0,
+      calcSource: isCurrency(value.calcSource) ? value.calcSource : defaults.calcSource,
+      calcCurrencies: list.filter(code => code === target || ++extras <= calcLimit)
     };
+  }
+
+  function localeOf(language) {
+    return locales[language] || locales.en;
+  }
+
+  const currencyNames = new Map();
+
+  function currencyName(code, language) {
+    const locale = localeOf(language);
+    try {
+      if (!currencyNames.has(locale)) currencyNames.set(locale, new Intl.DisplayNames([locale], {type: "currency"}));
+      const name = currencyNames.get(locale).of(code);
+      return name ? `${name.charAt(0).toLocaleUpperCase(locale)}${name.slice(1)}` : code;
+    } catch {
+      return code;
+    }
+  }
+
+  function displayMode(settings) {
+    return settings.dualPrices ? "dual" : settings.tooltips ? "hover" : "converted";
+  }
+
+  function displayPatch(mode) {
+    if (mode === "dual") return {dualPrices: true};
+    return {dualPrices: false, tooltips: mode === "hover"};
   }
 
   function positiveRate(value) {
@@ -100,24 +181,28 @@
     return Number.isFinite(value) && value > 0 && value <= now;
   }
 
-  function resolveRate(state, source) {
+  function resolvePair(state, source, target) {
     const settings = state.settings;
-    if (source === settings.targetCurrency) return {rate: 1, source: "identity", stale: false};
-    if (settings.manualEnabled) {
+    if (source === target) return {rate: 1, source: "identity", stale: false};
+    if (settings.manualEnabled && target === settings.targetCurrency) {
       const rate = positiveRate(settings.manualRate);
       return source === settings.manualSourceCurrency && rate ? {rate, source: "manual", stale: false} : null;
     }
-    const entry = state.rateCache?.entries?.[pairKey(source, settings.targetCurrency)];
+    const entry = state.rateCache?.entries?.[pairKey(source, target)];
     const rate = positiveRate(entry?.rate);
     if (!rate || !validTimestamp(entry.fetchedAt)) return null;
-    const failure = state.rateFailures?.[pairKey(source, settings.targetCurrency)];
+    const failure = state.rateFailures?.[pairKey(source, target)];
     const failed = validTimestamp(failure?.at) && failure.at >= entry.fetchedAt;
     return {...entry, rate, providerUpdatedAt: typeof entry.providerUpdatedAt === "string" ? entry.providerUpdatedAt.slice(0, 80) : "", stale: failed || Date.now() - entry.fetchedAt >= 6 * 60 * 60 * 1000};
   }
 
+  function resolveRate(state, source) {
+    return resolvePair(state, source, state.settings.targetCurrency);
+  }
+
   function formatMoney(amount, currency, settings) {
     const digits = settings.precision === "auto" ? new Intl.NumberFormat("en", {style: "currency", currency}).resolvedOptions().maximumFractionDigits : Number(settings.precision);
-    const number = new Intl.NumberFormat(settings.language === "ru" ? "ru-RU" : "en-US", {
+    const number = new Intl.NumberFormat(localeOf(settings.language), {
       minimumFractionDigits: digits,
       maximumFractionDigits: digits
     }).format(amount);
@@ -139,8 +224,8 @@
   }
 
   function formatRate(rate, language) {
-    return new Intl.NumberFormat(language === "ru" ? "ru-RU" : "en-US", {maximumSignificantDigits: 10}).format(rate);
+    return new Intl.NumberFormat(localeOf(language), {maximumSignificantDigits: 10}).format(rate);
   }
 
-  globalThis.SteamFX = Object.freeze({currencies, defaults, isCurrency, currencyFromValue, normalizeSettings, positiveRate, pairKey, validTimestamp, resolveRate, formatMoney, formatRate, dualSeparator, dualOriginal, joinDual, tooltipsActive});
+  globalThis.SteamFX = Object.freeze({currencies, languages, setupSteps, defaults, isCurrency, isLanguage, currencyFor, localeOf, currencyName, displayMode, displayPatch, currencyFromValue, normalizeSettings, positiveRate, pairKey, validTimestamp, resolvePair, resolveRate, calcLimit, formatMoney, formatRate, dualSeparator, dualOriginal, joinDual, tooltipsActive});
 })();

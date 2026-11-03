@@ -191,8 +191,46 @@
       const [tintHue, tintSaturation, tintLightness] = rgbToHsl(toRgb(tint));
       vars[name] = toHex(hslToRgb(tintHue + shift, clamp(tintSaturation * ratio), tintLightness));
     }
-    vars["--logo-filter"] = hex === defaultColor ? "none" : `hue-rotate(${shift.toFixed(1)}deg) saturate(${ratio.toFixed(3)})`;
     return vars;
+  }
+
+  const iconBase = (() => {
+    const [, saturation, lightness] = rgbToHsl(toRgb(defaultColor));
+    return {saturation, lightness};
+  })();
+
+  function hueDistance(from, to) {
+    return ((to - from) % 360 + 540) % 360 - 180;
+  }
+
+  function tintPixels(data, color) {
+    const hex = ensureReadable(color);
+    if (hex === defaultColor) return data;
+    const [hue, saturation, lightness] = rgbToHsl(toRgb(hex));
+    const shift = saturation ? hueDistance(base.hue, hue) : 0;
+    const saturationRatio = saturation / iconBase.saturation;
+    const lightnessRatio = lightness / iconBase.lightness;
+    for (let index = 0; index < data.length; index += 4) {
+      if (!data[index + 3]) continue;
+      const pixel = [data[index], data[index + 1], data[index + 2]];
+      const [pixelHue, pixelSaturation, pixelLightness] = rgbToHsl(pixel);
+      const distance = Math.abs(hueDistance(base.hue, pixelHue));
+      const weight = Math.max(clamp((25 - distance) / 10), clamp((42 - distance) / 12) * clamp((pixelLightness - 0.2) / 0.12)) * clamp(pixelSaturation / 0.2);
+      if (!weight) continue;
+      const rgb = hslToRgb(pixelHue + shift, clamp(pixelSaturation * saturationRatio), clamp(pixelLightness * lightnessRatio));
+      for (let channel = 0; channel < 3; channel++) data[index + channel] = pixel[channel] + (rgb[channel] - pixel[channel]) * weight;
+    }
+    return data;
+  }
+
+  function grayPixels(data) {
+    for (let index = 0; index < data.length; index += 4) {
+      const gray = 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
+      data[index] = gray;
+      data[index + 1] = gray;
+      data[index + 2] = gray;
+    }
+    return data;
   }
 
   function apply(root, color) {
@@ -201,5 +239,5 @@
     return vars["--accent"];
   }
 
-  globalThis.SteamFXTheme = Object.freeze({defaultColor, presets, valueFloor, parseHex, toRgb, toHex, rgbToHsv, hsvToRgb, readable, boundary, project, colorAt, yAt, ensureReadable, palette, apply});
+  globalThis.SteamFXTheme = Object.freeze({defaultColor, presets, valueFloor, parseHex, toRgb, toHex, rgbToHsv, hsvToRgb, readable, boundary, project, colorAt, yAt, ensureReadable, palette, apply, tintPixels, grayPixels});
 })();
