@@ -37,7 +37,7 @@
 On first launch, a short setup walks you through four steps: interface language, currencies, price display and a summary. It stays on screen until you finish it, and everything can be changed later in Settings.
 
 <div align="center">
-<img src="docs/images/setup.png" alt="First-run setup in four steps" width="900">
+<img src="docs/images/setu.png" alt="First-run setup in four steps" width="900">
 </div>
 
 ## Installation
