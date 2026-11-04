@@ -101,8 +101,7 @@ The extension collects no data, uses no analytics and sends no cookies: requests
 ├── theme.js              Theme colors, color picker and icon tinting
 ├── i18n.js               Interface translations
 ├── _locales/             Name and description for Chrome in 8 languages
-├── icons/                Extension icons
-└── docs/images/          Images for the README
+└── icons/                Extension icons
 ```
 
 No build step needed: plain JavaScript with no dependencies. After making changes, click **Reload** on the extension card in `chrome://extensions`.
