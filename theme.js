@@ -20,11 +20,9 @@
     "--tint-arrow": "#5d807f",
     "--tint-equals": "#537c77",
     "--tint-status": "#afc5c2",
-    "--tint-date": "#76948f",
-    "--tint-icon": "#9fb9b5",
-    "--tint-cache-icon": "#69bfb1",
-    "--tint-cache-title": "#c2d7d2"
+    "--tint-icon": "#9fb9b5"
   });
+  const cardDefaults = Object.freeze({"--card-from": "#152530", "--card-to": "#14202d", "--card-glow": "#62eed41b"});
 
   const clamp = (value, min = 0, max = 1) => Math.min(max, Math.max(min, value));
   const wrapHue = hue => (hue % 360 + 360) % 360;
@@ -42,6 +40,11 @@
 
   function toHex(rgb) {
     return `#${rgb.map(channel => Math.round(clamp(channel, 0, 255)).toString(16).padStart(2, "0")).join("")}`;
+  }
+
+  function blend(color, base, amount) {
+    const from = toRgb(color);
+    return toHex(toRgb(base).map((channel, index) => channel + (from[index] - channel) * amount));
   }
 
   function hueOf(r, g, b, max, delta) {
@@ -182,8 +185,15 @@
     const amount = chroma(hex);
     const shift = amount ? hue - base.hue : 0;
     const ratio = Math.min(1.6, amount / base.chroma);
-    const vars = {"--accent": hex};
+    const vars = {"--accent": hex, ...cardDefaults};
+    if (hex !== defaultColor) {
+      vars["--card-from"] = blend(hex, "#121a28", 0.14);
+      vars["--card-to"] = blend(hex, "#111826", 0.06);
+      vars["--card-glow"] = `${hex}2a`;
+      vars["--card-border"] = blend(hex, "#1b2433", 0.3);
+    }
     for (const [name, tint] of Object.entries(tints)) {
+      if (name === "--card-border" && hex !== defaultColor) continue;
       if (hex === defaultColor) {
         vars[name] = tint;
         continue;
@@ -223,6 +233,25 @@
     return data;
   }
 
+  function tintFill(data, color) {
+    const hex = ensureReadable(color);
+    if (hex === defaultColor) return data;
+    const accent = toRgb(hex);
+    const neutral = [4, 14, 14];
+    for (let index = 0; index < data.length; index += 4) {
+      if (!data[index + 3]) continue;
+      const pixel = [data[index], data[index + 1], data[index + 2]];
+      const weight = clamp((0.34 - rgbToHsl(pixel)[2]) / 0.1);
+      if (!weight) continue;
+      for (let channel = 0; channel < 3; channel++) {
+        const base = Math.max(0, pixel[channel] - neutral[channel]);
+        const target = base + (accent[channel] - base) * 0.14;
+        data[index + channel] = pixel[channel] + (target - pixel[channel]) * weight;
+      }
+    }
+    return data;
+  }
+
   function grayPixels(data) {
     for (let index = 0; index < data.length; index += 4) {
       const gray = 0.2126 * data[index] + 0.7152 * data[index + 1] + 0.0722 * data[index + 2];
@@ -239,5 +268,5 @@
     return vars["--accent"];
   }
 
-  globalThis.SteamFXTheme = Object.freeze({defaultColor, presets, valueFloor, parseHex, toRgb, toHex, rgbToHsv, hsvToRgb, readable, boundary, project, colorAt, yAt, ensureReadable, palette, apply, tintPixels, grayPixels});
+  globalThis.SteamFXTheme = Object.freeze({defaultColor, presets, valueFloor, parseHex, toRgb, rgbToHsv, boundary, project, colorAt, yAt, ensureReadable, palette, apply, tintPixels, tintFill, grayPixels});
 })();

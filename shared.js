@@ -2,44 +2,50 @@
   "use strict";
 
   const currencies = Object.freeze({
-    RUB: {id: 5, symbol: "₽"},
-    KZT: {id: 37, symbol: "₸"},
-    USD: {id: 1, symbol: "$"},
-    EUR: {id: 3, symbol: "€"},
-    UAH: {id: 18, symbol: "₴"},
-    GBP: {id: 2, symbol: "£"},
-    BRL: {id: 7, symbol: "R$"},
-    AUD: {id: 21, symbol: "A$"},
-    CAD: {id: 20, symbol: "CDN$"},
-    JPY: {id: 8, symbol: "¥"},
-    KRW: {id: 16, symbol: "₩"},
-    SGD: {id: 13, symbol: "S$"},
-    CNY: {id: 23, symbol: "CN¥"},
-    INR: {id: 24, symbol: "₹"},
-    ILS: {id: 35, symbol: "₪"},
-    CHF: {id: 4, symbol: "CHF"},
-    PLN: {id: 6, symbol: "zł"},
-    NOK: {id: 9, symbol: "kr"},
-    IDR: {id: 10, symbol: "Rp"},
-    MYR: {id: 11, symbol: "RM"},
-    PHP: {id: 12, symbol: "P"},
-    THB: {id: 14, symbol: "฿"},
-    VND: {id: 15, symbol: "₫"},
-    MXN: {id: 19, symbol: "Mex$"},
-    NZD: {id: 22, symbol: "NZ$"},
-    CLP: {id: 25, symbol: "CLP$"},
-    PEN: {id: 26, symbol: "S/."},
-    COP: {id: 27, symbol: "COL$"},
-    ZAR: {id: 28, symbol: "R"},
-    HKD: {id: 29, symbol: "HK$"},
-    TWD: {id: 30, symbol: "NT$"},
-    SAR: {id: 31, symbol: "SR"},
-    AED: {id: 32, symbol: "AED"},
-    KWD: {id: 38, symbol: "KD"},
-    QAR: {id: 39, symbol: "QR"},
-    CRC: {id: 40, symbol: "₡"},
-    UYU: {id: 41, symbol: "$U"}
+    RUB: {id: 5, symbol: "₽", format: "1000,00 руб.", trim: true},
+    KZT: {id: 37, symbol: "₸", format: "1 000,00₸"},
+    USD: {id: 1, symbol: "$", format: "$1,000.00"},
+    EUR: {id: 3, symbol: "€", format: "1 000,00€"},
+    UAH: {id: 18, symbol: "₴", format: "1 000,00₴"},
+    GBP: {id: 2, symbol: "£", format: "£1,000.00"},
+    BRL: {id: 7, symbol: "R$", format: "R$1.000,00"},
+    AUD: {id: 21, symbol: "A$", format: "A$ 1,000.00"},
+    CAD: {id: 20, symbol: "C$", format: "C$ 1,000.00"},
+    JPY: {id: 8, symbol: "¥", format: "¥1,000.00", digits: 0},
+    KRW: {id: 16, symbol: "₩", format: "₩ 1,000.00", digits: 0},
+    SGD: {id: 13, symbol: "S$", format: "S$1,000.00"},
+    CNY: {id: 23, symbol: "¥", format: "¥1,000.00"},
+    INR: {id: 24, symbol: "₹", format: "₹1,000.00"},
+    ILS: {id: 35, symbol: "₪", format: "₪1,000.00"},
+    CHF: {id: 4, symbol: "CHF", format: "CHF 1 000.00"},
+    PLN: {id: 6, symbol: "zł", format: "1 000,00 zł"},
+    NOK: {id: 9, symbol: "kr", format: "1.000,00 kr"},
+    IDR: {id: 10, symbol: "Rp", format: "Rp 1 000.00", digits: 0},
+    MYR: {id: 11, symbol: "RM", format: "RM1,000.00"},
+    PHP: {id: 12, symbol: "₱", format: "₱1,000.00"},
+    THB: {id: 14, symbol: "฿", format: "฿1,000.00"},
+    VND: {id: 15, symbol: "₫", format: "1.000,00₫", digits: 0},
+    MXN: {id: 19, symbol: "Mex$", format: "Mex$ 1,000.00"},
+    NZD: {id: 22, symbol: "NZ$", format: "NZ$ 1,000.00"},
+    CLP: {id: 25, symbol: "CLP$", format: "CLP$1.000,00", digits: 0},
+    PEN: {id: 26, symbol: "S/.", format: "S/. 1,000.00"},
+    COP: {id: 27, symbol: "COL$", format: "COL$ 1.000,00"},
+    ZAR: {id: 28, symbol: "R", format: "R 1 000.00"},
+    HKD: {id: 29, symbol: "HK$", format: "HK$ 1,000.00"},
+    TWD: {id: 30, symbol: "NT$", format: "NT$ 1,000.00"},
+    SAR: {id: 31, symbol: "SR", format: "1,000.00 SR"},
+    AED: {id: 32, symbol: "AED", format: "1,000.00 AED"},
+    KWD: {id: 38, symbol: "KD", format: "1,000.00 KD"},
+    QAR: {id: 39, symbol: "QR", format: "1,000.00 QR"},
+    CRC: {id: 40, symbol: "₡", format: "₡1.000,00"},
+    UYU: {id: 41, symbol: "$U", format: "$U1.000,00"}
   });
+
+  const styles = new Map(Object.entries(currencies).map(([code, data]) => {
+    const [, before, group, decimal, after] = /^(\D*)1(\D?)000(\D)00(\D*)$/.exec(data.format);
+    const space = text => text.replace(/ /g, " ");
+    return [code, Object.freeze({before: space(before), after: space(after), group: space(group), decimal, digits: data.digits ?? 2, trim: Boolean(data.trim), sign: (before + after).trim()})];
+  }));
 
   const languages = Object.freeze({
     en: "English",
@@ -49,12 +55,14 @@
     "pt-BR": "Português (Brasil)",
     ja: "日本語",
     de: "Deutsch",
-    pl: "Polski"
+    pl: "Polski",
+    fr: "Français",
+    ko: "한국어"
   });
 
-  const locales = Object.freeze({en: "en-US", ru: "ru-RU", "zh-CN": "zh-CN", es: "es-ES", "pt-BR": "pt-BR", ja: "ja-JP", de: "de-DE", pl: "pl-PL"});
+  const locales = Object.freeze({en: "en-US", ru: "ru-RU", "zh-CN": "zh-CN", es: "es-ES", "pt-BR": "pt-BR", ja: "ja-JP", de: "de-DE", pl: "pl-PL", fr: "fr-FR", ko: "ko-KR"});
 
-  const languageCurrencies = Object.freeze({en: "USD", ru: "RUB", "zh-CN": "CNY", es: "EUR", "pt-BR": "BRL", ja: "JPY", de: "EUR", pl: "PLN"});
+  const languageCurrencies = Object.freeze({en: "USD", ru: "RUB", "zh-CN": "CNY", es: "EUR", "pt-BR": "BRL", ja: "JPY", de: "EUR", pl: "PLN", fr: "EUR", ko: "KRW"});
 
   function isLanguage(code) {
     return typeof code === "string" && Object.hasOwn(languages, code);
@@ -95,7 +103,9 @@
     setupDone: false,
     setupStep: 0,
     calcSource: "KZT",
-    calcCurrencies: Object.freeze(["USD", "EUR", "KZT", "CNY", "UAH"])
+    calcCurrencies: Object.freeze(["USD", "EUR", "KZT", "CNY", "UAH"]),
+    termsAccepted: false,
+    promptMuted: false
   });
 
   const calcLimit = 6;
@@ -135,8 +145,32 @@
       setupDone: typeof value.setupDone === "boolean" ? value.setupDone : Object.keys(value).length > 0,
       setupStep: Number.isInteger(step) && step >= 0 && step < setupSteps ? step : 0,
       calcSource: isCurrency(value.calcSource) ? value.calcSource : defaults.calcSource,
-      calcCurrencies: list.filter(code => code === target || ++extras <= calcLimit)
+      calcCurrencies: list.filter(code => code === target || ++extras <= calcLimit),
+      termsAccepted: value.termsAccepted === true,
+      promptMuted: value.promptMuted === true
     };
+  }
+
+  const releasesUrl = "https://github.com/toxi-gh/Steam_Currency_Converter/releases";
+
+  function parseVersion(value) {
+    const match = /(\d+)\.(\d+)(?:\.(\d+))?/.exec(String(value ?? ""));
+    return match ? [match[1], match[2], match[3] || "0"].map(Number).join(".") : "";
+  }
+
+  function compareVersions(left, right) {
+    const a = parseVersion(left).split(".").map(Number);
+    const b = parseVersion(right).split(".").map(Number);
+    if (!parseVersion(left) || !parseVersion(right)) return parseVersion(left) ? 1 : parseVersion(right) ? -1 : 0;
+    for (let index = 0; index < 3; index++) if (a[index] !== b[index]) return a[index] > b[index] ? 1 : -1;
+    return 0;
+  }
+
+  function updateStatus(info, current) {
+    const latest = parseVersion(info?.latest);
+    const skipped = parseVersion(info?.skipped);
+    const available = Boolean(latest) && compareVersions(latest, current) > 0;
+    return {available, latest, current: parseVersion(current), notify: available && (!skipped || compareVersions(latest, skipped) > 0)};
   }
 
   function localeOf(language) {
@@ -200,13 +234,31 @@
     return resolvePair(state, source, state.settings.targetCurrency);
   }
 
+  function composeMoney(value, currency, options) {
+    const style = styles.get(currency);
+    const [integer, fraction] = new Intl.NumberFormat("en-US", {...options, useGrouping: false}).format(value).split(".");
+    const grouped = style.group ? integer.replace(/\B(?=(\d{3})+$)/g, style.group) : integer;
+    return `${style.before}${fraction ? `${grouped}${style.decimal}${fraction}` : grouped}${style.after}`;
+  }
+
+  function moneyDigits(amount, currency, precision) {
+    const style = styles.get(currency);
+    if (precision !== "auto") return Number(precision);
+    if (style.trim && Number.isInteger(Math.round(amount * 10 ** style.digits) / 10 ** style.digits)) return 0;
+    return style.digits;
+  }
+
   function formatMoney(amount, currency, settings) {
-    const digits = settings.precision === "auto" ? new Intl.NumberFormat("en", {style: "currency", currency}).resolvedOptions().maximumFractionDigits : Number(settings.precision);
-    const number = new Intl.NumberFormat(localeOf(settings.language), {
-      minimumFractionDigits: digits,
-      maximumFractionDigits: digits
-    }).format(amount);
-    return `${number}\u00a0${currencies[currency].symbol}`;
+    const digits = moneyDigits(amount, currency, settings.precision);
+    return composeMoney(amount, currency, {minimumFractionDigits: digits, maximumFractionDigits: digits});
+  }
+
+  function formatRateAmount(rate, currency, digits = 10) {
+    return composeMoney(rate, currency, {maximumSignificantDigits: digits});
+  }
+
+  function currencySign(currency) {
+    return styles.get(currency).sign;
   }
 
   const dualSeparator = "\u00a0· ";
@@ -223,9 +275,5 @@
     return Boolean(settings.enabled && settings.tooltips && !settings.dualPrices);
   }
 
-  function formatRate(rate, language) {
-    return new Intl.NumberFormat(localeOf(language), {maximumSignificantDigits: 10}).format(rate);
-  }
-
-  globalThis.SteamFX = Object.freeze({currencies, languages, setupSteps, defaults, isCurrency, isLanguage, currencyFor, localeOf, currencyName, displayMode, displayPatch, currencyFromValue, normalizeSettings, positiveRate, pairKey, validTimestamp, resolvePair, resolveRate, calcLimit, formatMoney, formatRate, dualSeparator, dualOriginal, joinDual, tooltipsActive});
+  globalThis.SteamFX = Object.freeze({releasesUrl, parseVersion, updateStatus, currencies, languages, setupSteps, defaults, isCurrency, currencyFor, localeOf, currencyName, displayMode, displayPatch, currencyFromValue, normalizeSettings, positiveRate, pairKey, validTimestamp, resolvePair, resolveRate, calcLimit, formatMoney, formatRateAmount, currencySign, dualSeparator, dualOriginal, joinDual, tooltipsActive});
 })();

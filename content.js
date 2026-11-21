@@ -28,6 +28,14 @@
   const requestedPairs = new Set();
   let state = {settings: SteamFX.normalizeSettings(), rateCache: {entries: {}}, rateFailures: {}};
   let ready = false;
+  let welcome = null;
+  let notice = null;
+  let noticeLayer = null;
+  let updateToast = null;
+  let updateInfo = null;
+  let noticeTimer = 0;
+  let noticeClosed = "";
+  let seenCurrency = "";
   let scheduled = false;
   let refreshScheduled = false;
   let stateVersion = 0;
@@ -365,12 +373,12 @@
     observer.disconnect();
     try {
       for (const group of [...groups.values()]) {
-        if (!group.element.isConnected || excluded(group.element) || !state.settings.enabled || pending.some(element => element.contains(group.element) || group.element.contains(element))) {
+        if (!group.element.isConnected || excluded(group.element) || !active() || pending.some(element => element.contains(group.element) || group.element.contains(element))) {
           if (group.element.isConnected) pending.push(group.element);
           restore(group);
         }
       }
-      if (!state.settings.enabled) return;
+      if (!active()) return;
       const candidates = new Set();
       const context = {pageCurrency: pageCurrency()};
       for (const element of pending) {
@@ -390,6 +398,7 @@
       const ordered = [...combined.sort((a, b) => depth(a) - depth(b)), ...complete.filter(element => !combinedSet.has(element)).sort((a, b) => depth(b) - depth(a))];
       for (const candidate of ordered) process(candidate, context, missing);
       requestRates(missing);
+      scheduleNotice();
     } finally {
       if (ready) {
         observer.observe(document.documentElement, observerOptions);
@@ -435,12 +444,16 @@
   async function refreshState() {
     const version = ++stateVersion;
     try {
-      const stored = await chrome.storage.local.get(["settings", "rateCache", "rateFailures"]);
+      const stored = await chrome.storage.local.get(["settings", "rateCache", "rateFailures", "updateInfo"]);
       if (version !== stateVersion) return;
       state = {settings: SteamFX.normalizeSettings(stored.settings), rateCache: stored.rateCache || {entries: {}}, rateFailures: stored.rateFailures || {}};
+      updateInfo = stored.updateInfo || null;
       ready = true;
+      renderWelcome();
+      renderUpdate();
       roots.add(document.body || document.documentElement);
       schedule();
+      scheduleNotice();
     } catch {
       if (version === stateVersion) stop();
     }
@@ -462,31 +475,21 @@
     style.textContent = `
       :host { all: initial !important; position: fixed !important; left: var(--scl-left, 0px) !important; top: var(--scl-top, 0px) !important; z-index: 2147483647 !important; pointer-events: none !important; display: none !important; }
       :host([data-visible]) { display: block !important; }
-      .box { box-sizing: border-box; width: max-content; max-width: min(310px, calc(100vw - 24px)); padding: 14px 16px; border: 1px solid #2e5467; border-radius: 13px; background: #101b2af5; color: #eff6ff; box-shadow: 0 12px 36px #0008; font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-      .label { color: #65dfd2; text-transform: uppercase; font-size: 10px; font-weight: 700; letter-spacing: 1.2px; }
-      .original { display: flex; flex-direction: column; gap: 3px; margin-top: 5px; font-size: 17px; font-weight: 650; overflow-wrap: anywhere; }
-      .original s { color: #a2b4c9; font-size: 13px; font-weight: 500; text-decoration: line-through; }
-      .original .current { color: #eff6ff; }
-      .rate { margin-top: 7px; color: #a2b4c9; font-size: 11px; white-space: pre-line; }
-      .note { margin-top: 5px; color: #e7bd78; font-size: 11px; }
-      .note:empty { display: none; }
+      .box { box-sizing: border-box; width: max-content; max-width: min(360px, calc(100vw - 24px)); padding: 6px 10px; border: 1px solid #2e5467; border-radius: 8px; background: #101b2af5; color: #eff6ff; box-shadow: 0 8px 24px #0008; font: 600 13px/1.35 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-variant-numeric: tabular-nums; }
+      .prices { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
+      .prices > * { white-space: nowrap; }
+      .prices s { color: #a2b4c9; font-size: 12px; font-weight: 500; text-decoration: line-through; }
       @media (prefers-reduced-motion: no-preference) { .box { animation: appear .12s ease-out; } @keyframes appear { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; transform: translateY(0); } } }
     `;
     const box = document.createElement("div");
     box.className = "box";
     box.setAttribute("role", "tooltip");
-    const label = document.createElement("div");
-    label.className = "label";
-    const original = document.createElement("div");
-    original.className = "original";
-    const rate = document.createElement("div");
-    rate.className = "rate";
-    const note = document.createElement("div");
-    note.className = "note";
-    box.append(label, original, rate, note);
+    const prices = document.createElement("div");
+    prices.className = "prices";
+    box.append(prices);
     shadow.append(style, box);
     document.documentElement.append(host);
-    return {host, label, original, rate, note};
+    return {host, prices};
   }
 
   function locateGroup(target) {
@@ -632,24 +635,13 @@
     const {element, prices} = model || tooltipPrices(target, scope);
     if (!prices.length) return hideTooltip();
     const t = key => SteamFXI18n.translate(state.settings.language, key);
-    tooltip.label.textContent = t(prices.length > 1 ? "tipLabels" : "tipLabel");
     const hasDiscount = prices.some(match => match.kind === "original") && prices.some(match => match.kind === "current");
-    tooltip.original.replaceChildren(...prices.flatMap((match, index) => {
+    tooltip.prices.replaceChildren(...prices.map(match => {
       const price = document.createElement(hasDiscount && match.kind === "original" ? "s" : "span");
-      price.className = match.kind;
-      price.textContent = match.original.trim();
+      price.textContent = match.original.trim().replace(/\s+/g, "\u00a0");
       if (hasDiscount) price.setAttribute("aria-label", `${t(match.kind === "original" ? "tipBefore" : "tipDiscounted")}: ${price.textContent}`);
-      return index ? [document.createTextNode(" "), price] : [price];
+      return price;
     }));
-    const seen = new Set();
-    tooltip.rate.textContent = prices.filter(match => {
-      if (!match.rate || seen.has(match.currency)) return false;
-      seen.add(match.currency);
-      return true;
-    }).map(match => `1 ${match.currency} = ${SteamFX.formatRate(match.rate.rate, state.settings.language)} ${state.settings.targetCurrency}`).join("\n");
-    const stale = prices.some(match => SteamFX.resolveRate(state, match.currency)?.stale);
-    const manual = state.settings.manualEnabled;
-    tooltip.note.textContent = stale ? t("tipStale") : manual ? t("tipManual") : "";
     tooltip.host.setAttribute("data-visible", "");
     hovered = {group, element, revision: sourceRevision};
     positionTooltip();
@@ -832,7 +824,7 @@
   document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") scheduleStateRefresh(); else dismissTooltip(); });
 
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== "local" || !["settings", "rateCache", "rateFailures"].some(key => key in changes)) return;
+    if (area !== "local" || !["settings", "rateCache", "rateFailures", "updateInfo"].some(key => key in changes)) return;
     if (changes.settings) requestedPairs.clear();
     scheduleStateRefresh();
   });
@@ -843,6 +835,289 @@
     respond({count: matches.length, currencies: [...new Set(matches.map(match => match.currency))]});
     return false;
   });
+
+  function active() {
+    return state.settings.enabled && state.settings.termsAccepted;
+  }
+
+  function translateText(key, values) {
+    return SteamFXI18n.translate(state.settings.language, key, values);
+  }
+
+  function themeColors() {
+    const colors = SteamFXTheme.palette(state.settings.accentColor);
+    return `--accent: ${colors["--accent"]}; --ink: ${colors["--accent-ink"]}; --from: ${colors["--card-from"]}; --to: ${colors["--card-to"]}; --border: ${colors["--card-border"]};`;
+  }
+
+  function overlayHost(name, css) {
+    const host = document.createElement(name);
+    const shadow = host.attachShadow({mode: "closed"});
+    const style = document.createElement("style");
+    style.textContent = `
+      :host { all: initial !important; }
+      * { box-sizing: border-box; margin: 0; }
+      .surface { font: 400 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #eaf2fc; -webkit-font-smoothing: antialiased; }
+      .mark { display: grid; flex-shrink: 0; place-items: center; border-radius: 12px; background: linear-gradient(145deg, var(--from), var(--to)); box-shadow: inset 0 0 0 1px var(--border); color: var(--accent); }
+      .mark svg { fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+      button { font: inherit; cursor: pointer; }
+      .primary { border: 0; border-radius: 10px; background: var(--accent); color: var(--ink); font-weight: 700; }
+      .primary:hover { filter: brightness(1.06); }
+      .secondary { border: 1px solid #ffffff1c; border-radius: 10px; background: #ffffff08; color: #dbe5f0; font-weight: 600; }
+      .secondary:hover { background: #ffffff10; }
+      button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+      ${css}
+    `;
+    shadow.append(style);
+    return {host, shadow};
+  }
+
+  function markIcon(size, path = "M4 8h15m-4-4 4 4-4 4M20 16H5m4-4-4 4 4 4") {
+    const mark = document.createElement("span");
+    mark.className = "mark";
+    mark.style.width = mark.style.height = `${size}px`;
+    mark.innerHTML = `<svg width="${Math.round(size * .5)}" height="${Math.round(size * .5)}" viewBox="0 0 24 24" aria-hidden="true"><path d="${path}"/></svg>`;
+    return mark;
+  }
+
+  function renderWelcome() {
+    const visible = state.settings.enabled && !state.settings.termsAccepted;
+    if (!visible) {
+      welcome?.host.remove();
+      welcome = null;
+      return;
+    }
+    if (!welcome) {
+      const {host, shadow} = overlayHost("steam-currency-lens-welcome", `
+        :host { position: fixed !important; inset: 0 !important; z-index: 2147483647 !important; display: block !important; }
+        .backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 24px; background: #070a11b8; backdrop-filter: blur(3px); }
+        .card { width: min(500px, 100%); max-height: calc(100vh - 48px); overflow: auto; padding: 26px 26px 22px; border: 1px solid #ffffff17; border-radius: 18px; background: radial-gradient(ellipse at top right, color-mix(in srgb, var(--accent) 14%, transparent), transparent 60%), #0f1623; box-shadow: 0 30px 80px #000c, 0 0 0 1px #0006; }
+        .head { display: flex; align-items: center; gap: 14px; }
+        h1 { font-size: 21px; font-weight: 700; line-height: 1.25; letter-spacing: -.2px; color: #f3f8ff; }
+        .lead { margin-top: 14px; color: #c3cfdc; font-size: 14px; }
+        .notice { margin-top: 16px; padding: 14px 16px; border: 1px solid #ffffff10; border-radius: 12px; background: #ffffff06; }
+        h2 { color: #f3f8ff; font-size: 13.5px; font-weight: 650; }
+        .notice p { margin-top: 6px; color: #9fb0c4; font-size: 12.5px; line-height: 1.6; }
+        .primary { width: 100%; min-height: 44px; margin-top: 20px; padding: 10px 18px; font-size: 14px; }
+        @media (prefers-reduced-motion: no-preference) { .card { animation: rise .2s ease-out; } @keyframes rise { from { opacity: 0; transform: translateY(8px) scale(.99); } } }
+      `);
+      const backdrop = document.createElement("div");
+      backdrop.className = "backdrop surface";
+      const card = document.createElement("section");
+      card.className = "card";
+      card.setAttribute("role", "dialog");
+      card.setAttribute("aria-modal", "true");
+      card.setAttribute("aria-labelledby", "welcome-title");
+      card.setAttribute("aria-describedby", "welcome-text");
+      const head = document.createElement("div");
+      head.className = "head";
+      const title = document.createElement("h1");
+      title.id = "welcome-title";
+      head.append(markIcon(46), title);
+      const lead = document.createElement("p");
+      lead.className = "lead";
+      lead.id = "welcome-text";
+      const box = document.createElement("div");
+      box.className = "notice";
+      const noticeTitle = document.createElement("h2");
+      const noticeText = document.createElement("p");
+      box.append(noticeTitle, noticeText);
+      const accept = document.createElement("button");
+      accept.type = "button";
+      accept.className = "primary";
+      accept.addEventListener("click", () => {
+        accept.disabled = true;
+        chrome.runtime.sendMessage({type: "PAGE_ACTION", action: "accept"}).then(response => {
+          if (!response?.ok) accept.disabled = false;
+        }).catch(() => { accept.disabled = false; });
+      });
+      card.append(head, lead, box, accept);
+      backdrop.append(card);
+      shadow.append(backdrop);
+      const block = event => event.preventDefault();
+      backdrop.addEventListener("wheel", block, {passive: false});
+      backdrop.addEventListener("touchmove", block, {passive: false});
+      host.addEventListener("keydown", event => {
+        if (event.key === "Tab") {
+          event.preventDefault();
+          accept.focus();
+        }
+        event.stopPropagation();
+      });
+      welcome = {host, backdrop, title, lead, noticeTitle, noticeText, accept};
+      document.documentElement.append(host);
+      requestAnimationFrame(() => accept.focus({preventScroll: true}));
+    }
+    welcome.backdrop.setAttribute("style", themeColors());
+    welcome.backdrop.lang = state.settings.language;
+    welcome.title.textContent = translateText("welcomeTitle");
+    welcome.lead.textContent = translateText("welcomeText");
+    welcome.noticeTitle.textContent = translateText("welcomeNoticeTitle");
+    welcome.noticeText.textContent = translateText("welcomeNotice");
+    welcome.accept.textContent = translateText("welcomeAccept");
+  }
+
+  function detectSteamCurrency() {
+    const explicit = pageCurrency();
+    if (explicit) return explicit;
+    for (const wallet of document.querySelectorAll("#header_wallet_balance,#marketWalletBalanceAmount")) {
+      const match = SteamFXPrices.findPrices(originalContent(wallet).text, {})[0];
+      if (match) return match.currency;
+    }
+    const counts = new Map();
+    let total = 0;
+    for (const element of [...document.querySelectorAll(PRICE_SELECTOR)].slice(0, 80)) {
+      if (excluded(element) || element.querySelector(PRICE_SELECTOR)) continue;
+      for (const match of SteamFXPrices.findPrices(originalContent(element).text, priceContext(element, {}))) {
+        counts.set(match.currency, (counts.get(match.currency) || 0) + 1);
+        total++;
+      }
+    }
+    const [code, count] = [...counts].sort((a, b) => b[1] - a[1])[0] || [];
+    return code && count >= 2 && count / total >= 0.6 ? code : null;
+  }
+
+  function scheduleNotice() {
+    clearTimeout(noticeTimer);
+    noticeTimer = setTimeout(updateNotice, 900);
+  }
+
+  function noticeStack() {
+    if (!noticeLayer) {
+      const {host, shadow} = overlayHost("steam-currency-lens-notice", `
+        :host { position: fixed !important; right: 20px !important; bottom: 20px !important; z-index: 2147483646 !important; display: block !important; }
+        .stack { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
+        .toast { display: flex; gap: 12px; width: min(384px, calc(100vw - 40px)); padding: 14px; border: 1px solid var(--border); border-radius: 14px; background: linear-gradient(140deg, var(--from), var(--to)), #0f1623; box-shadow: 0 18px 48px #000b, 0 0 0 1px #0006; }
+        .body { flex: 1; min-width: 0; }
+        h2 { color: #f3f8ff; font-size: 14px; font-weight: 650; line-height: 1.35; }
+        p { margin-top: 4px; color: #b4c3d3; font-size: 12.5px; line-height: 1.5; }
+        .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .actions > * { display: inline-grid; place-items: center; min-width: 72px; height: 32px; padding: 0 13px; font-size: 13px; white-space: nowrap; text-decoration: none; }
+        @media (prefers-reduced-motion: no-preference) { .toast { animation: slide .22s ease-out; } @keyframes slide { from { opacity: 0; transform: translateY(10px); } } }
+      `);
+      const stack = document.createElement("div");
+      stack.className = "stack surface";
+      shadow.append(stack);
+      document.documentElement.append(host);
+      noticeLayer = {host, stack};
+    }
+    return noticeLayer.stack;
+  }
+
+  function releaseNotices() {
+    if (noticeLayer && !noticeLayer.stack.childElementCount) {
+      noticeLayer.host.remove();
+      noticeLayer = null;
+    }
+  }
+
+  function createToast(id, primaryTag, path) {
+    const toast = document.createElement("section");
+    toast.className = "toast";
+    toast.setAttribute("role", "alertdialog");
+    toast.setAttribute("aria-labelledby", `${id}-title`);
+    toast.setAttribute("aria-describedby", `${id}-text`);
+    const body = document.createElement("div");
+    body.className = "body";
+    const title = document.createElement("h2");
+    title.id = `${id}-title`;
+    const text = document.createElement("p");
+    text.id = `${id}-text`;
+    const actions = document.createElement("div");
+    actions.className = "actions";
+    const primary = document.createElement(primaryTag);
+    primary.className = "primary";
+    const secondary = document.createElement("button");
+    secondary.type = "button";
+    secondary.className = "secondary";
+    if (primaryTag === "button") primary.type = "button";
+    actions.append(primary, secondary);
+    body.append(title, text, actions);
+    toast.append(markIcon(36, path), body);
+    return {toast, title, text, primary, secondary};
+  }
+
+  function paintToast(item) {
+    item.toast.setAttribute("style", themeColors());
+    item.toast.lang = state.settings.language;
+  }
+
+  function hideNotice() {
+    notice?.toast.remove();
+    notice = null;
+    releaseNotices();
+  }
+
+  function updateNotice() {
+    if (!ready || !active()) return hideNotice();
+    const steam = detectSteamCurrency();
+    if (!steam) return;
+    const settings = state.settings;
+    if (steam !== seenCurrency) {
+      seenCurrency = steam;
+      chrome.runtime.sendMessage({type: "PAGE_ACTION", action: "seen", currency: steam}).catch(() => {});
+    }
+    const key = `${steam}:${settings.manualSourceCurrency}`;
+    if (steam === settings.manualSourceCurrency) noticeClosed = "";
+    if (steam === settings.manualSourceCurrency || steam === settings.targetCurrency || settings.promptMuted || noticeClosed === key) return hideNotice();
+    showNotice(steam, key);
+  }
+
+  function showNotice(steam, key) {
+    const source = state.settings.manualSourceCurrency;
+    if (!notice) {
+      notice = createToast("notice", "button");
+      notice.primary.addEventListener("click", () => {
+        noticeClosed = notice.key;
+        chrome.runtime.sendMessage({type: "PAGE_ACTION", action: "switch", currency: notice.steam}).catch(() => {});
+        hideNotice();
+      });
+      notice.secondary.addEventListener("click", () => {
+        noticeClosed = notice.key;
+        chrome.runtime.sendMessage({type: "PAGE_ACTION", action: "mute"}).catch(() => {});
+        hideNotice();
+      });
+      noticeStack().append(notice.toast);
+    }
+    notice.steam = steam;
+    notice.key = key;
+    paintToast(notice);
+    notice.title.textContent = translateText("promptTitle", {steam});
+    notice.text.textContent = translateText("promptText", {steam: `${SteamFX.currencyName(steam, state.settings.language)} (${steam})`, source: `${SteamFX.currencyName(source, state.settings.language)} (${source})`});
+    notice.primary.textContent = translateText("yes");
+    notice.secondary.textContent = translateText("no");
+  }
+
+  function renderUpdate() {
+    const current = chrome.runtime.getManifest().version;
+    const status = SteamFX.updateStatus(updateInfo, current);
+    if (!ready || !state.settings.termsAccepted || !status.notify) {
+      updateToast?.toast.remove();
+      updateToast = null;
+      releaseNotices();
+      return;
+    }
+    if (!updateToast) {
+      updateToast = createToast("update", "a", "M12 4v11m-4.5-4.5L12 15l4.5-4.5M5 19.5h14");
+      updateToast.primary.href = SteamFX.releasesUrl;
+      updateToast.primary.target = "_blank";
+      updateToast.primary.rel = "noopener noreferrer";
+      updateToast.secondary.addEventListener("click", () => {
+        updateToast.secondary.disabled = true;
+        chrome.runtime.sendMessage({type: "PAGE_ACTION", action: "skipUpdate", version: updateToast.version}).then(response => {
+          if (!response?.ok && updateToast) updateToast.secondary.disabled = false;
+        }).catch(() => {
+          if (updateToast) updateToast.secondary.disabled = false;
+        });
+      });
+      noticeStack().prepend(updateToast.toast);
+    }
+    updateToast.version = status.latest;
+    paintToast(updateToast);
+    updateToast.title.textContent = translateText("updateTitle", {version: status.latest});
+    updateToast.text.textContent = translateText("updateText", {current: status.current});
+    updateToast.primary.textContent = translateText("updateOpen");
+    updateToast.secondary.textContent = translateText("updateSkip");
+  }
 
   tooltip = createTooltip();
   observer.observe(document.documentElement, observerOptions);

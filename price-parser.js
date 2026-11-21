@@ -2,11 +2,11 @@
   "use strict";
 
   const aliases = Object.freeze({
-    ...Object.fromEntries(Object.entries(SteamFX.currencies).map(([code, data]) => [data.symbol.toUpperCase(), code])),
-    "US$": "USD", "U.S.$": "USD", "USD$": "USD", "CAD$": "CAD", "CA$": "CAD", "C$": "CAD",
+    ...Object.fromEntries(Object.entries(SteamFX.currencies).flatMap(([code, data]) => [[data.symbol.toUpperCase(), code], [SteamFX.currencySign(code).toUpperCase(), code]])),
+    "US$": "USD", "U.S.$": "USD", "USD$": "USD", "CAD$": "CAD", "CA$": "CAD", "CDN$": "CAD",
     "AUD$": "AUD", "AU$": "AUD", "SGD$": "SGD", "NZD$": "NZD", "HKD$": "HKD", "TWD$": "TWD",
-    "MXN$": "MXN", "COP$": "COP", "UYU$": "UYU", "CN￥": "CNY", "￥": "JPY", "₱": "PHP",
-    "РУБ": "RUB", "РУБ.": "RUB", "Р.": "RUB", "ГРН": "UAH", "ГРН.": "UAH"
+    "MXN$": "MXN", "COP$": "COP", "UYU$": "UYU", "CN¥": "CNY", "CN￥": "CNY", "￥": "JPY", "P": "PHP",
+    "РУБ": "RUB", "PУБ": "RUB", "PУБ.": "RUB", "Р.": "RUB", "ГРН": "UAH", "ГРН.": "UAH"
   });
   const tokens = [...new Set([...Object.keys(SteamFX.currencies), ...Object.keys(aliases)])]
     .sort((a, b) => b.length - a.length)

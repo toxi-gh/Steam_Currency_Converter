@@ -41,13 +41,21 @@ let copiedCode = "";
 let copiedTimer = 0;
 const calcRows = new Map();
 let rowDrag = null;
+const anchorPrice = 10;
+const fallbackAmount = 100;
+const anchorRequests = new Set();
+const amountFields = {quick: {id: "calculator-amount", code: "", touched: false}, calc: {id: "calc-amount", code: "", touched: false}};
+let ratesLoaded = false;
+let quickReverse = false;
+let updateInfo = null;
+const currencyPicker = {button: null, field: "", items: [], active: 0};
+let copyTimer = 0;
 
 try {
   const cached = JSON.parse(localStorage.getItem("popupState") || "null");
   if (cached && typeof cached === "object") cachedView = cached;
-  localStorage.removeItem("popupTheme");
   const cachedLogo = JSON.parse(localStorage.getItem("popupLogo") || "null");
-  if (cachedView && typeof cachedLogo?.src === "string" && cachedLogo.src.startsWith("data:image/png") && cachedLogo.color === SteamFXTheme.ensureReadable(cachedView.accentColor)) {
+  if (cachedView && typeof cachedLogo?.src === "string" && cachedLogo.src.startsWith("data:image/png") && cachedLogo.version === 2 && cachedLogo.color === SteamFXTheme.ensureReadable(cachedView.accentColor)) {
     logo.src = cachedLogo.src;
     logoColor = cachedLogo.color;
   }
@@ -58,8 +66,10 @@ function resizePopup() {
   if (resizeFrame || !viewReady) return;
   resizeFrame = requestAnimationFrame(() => {
     resizeFrame = 0;
-    const height = Math.ceil(popupContent.getBoundingClientRect().height);
+    const area = popupContent.getBoundingClientRect();
+    let height = Math.ceil(area.height);
     if (!height) return;
+    if (!$("rate-menu").hidden) height = Math.min(600, Math.max(height, Math.ceil($("rate-menu").getBoundingClientRect().bottom - area.top + 12)));
     const value = `${height}px`;
     if (document.body.style.height !== value) document.body.style.height = value;
     if (!popupReady) {
@@ -70,23 +80,30 @@ function resizePopup() {
 }
 
 if (typeof ResizeObserver === "function") new ResizeObserver(resizePopup).observe(popupContent);
-document.fonts?.ready.then(resizePopup);
-document.fonts?.addEventListener("loadingdone", resizePopup);
+document.fonts?.ready.then(() => {
+  fitRate();
+  renderSetupRate();
+  resizePopup();
+});
+document.fonts?.addEventListener("loadingdone", () => {
+  fitRate();
+  renderSetupRate();
+  resizePopup();
+});
 
 function t(key, values) {
   return SteamFXI18n.translate(state.settings.language, key, values);
 }
 
-function populateSelect(element, codes, value) {
-  if (element.options.length !== codes.length || codes.some((code, index) => element.options[index].value !== code)) element.replaceChildren(...codes.map(code => {
-    const option = document.createElement("option");
-    option.value = code;
-    option.textContent = `${code} ${SteamFX.currencies[code].symbol}`;
-    return option;
-  }));
-  for (const option of element.options) option.title = SteamFX.currencyName(option.value, state.settings.language);
-  element.value = value;
-  element.title = SteamFX.currencyName(value, state.settings.language);
+function renderCurrencyButton(button, code) {
+  const name = SteamFX.currencyName(code, state.settings.language);
+  if (button.dataset.code !== code || !button.firstChild) {
+    button.dataset.code = code;
+    button.replaceChildren(node("b", "", code), node("span", "", SteamFX.currencies[code].symbol), icon("chevron-icon"));
+  }
+  button.title = name;
+  button.setAttribute("aria-label", `${button.dataset.label ? `${t(button.dataset.label)}: ` : ""}${code}, ${name}`);
+  button.setAttribute("aria-expanded", String(currencyPicker.button === button));
 }
 
 function node(tag, className, text) {
@@ -115,25 +132,25 @@ function renderUI() {
   for (const element of document.querySelectorAll("[data-i18n]")) element.textContent = t(element.dataset.i18n);
   for (const element of document.querySelectorAll("[data-i18n-aria]")) element.setAttribute("aria-label", t(element.dataset.i18nAria));
   for (const element of document.querySelectorAll("[data-i18n-title]")) element.title = t(element.dataset.i18nTitle);
+  for (const element of document.querySelectorAll("[data-i18n-placeholder]")) element.placeholder = t(element.dataset.i18nPlaceholder);
   const inSetup = !settings.setupDone;
   if (!$("setup").hidden && !inSetup) showView("prices");
   $("setup").hidden = !inSetup;
   $("app").hidden = inSetup;
   document.body.classList.toggle("in-setup", inSetup);
-  $("language-select").value = settings.language;
+  renderLanguageButton();
   $("enabled").checked = settings.enabled;
   $("power-state").textContent = t(settings.enabled ? "stateOn" : "stateOff");
   $("enabled-switch").classList.toggle("on", settings.enabled);
-  $("manual-enabled").checked = settings.manualEnabled;
   const mode = SteamFX.displayMode(settings);
   for (const button of document.querySelectorAll("[data-mode]")) button.setAttribute("aria-pressed", String(button.dataset.mode === mode));
   $("manual-fields").hidden = !settings.manualEnabled;
+  $("rate-auto").hidden = settings.manualEnabled;
+  for (const button of document.querySelectorAll("[data-rate-mode]")) button.setAttribute("aria-checked", String((button.dataset.rateMode === "manual") === settings.manualEnabled));
   $("manual-unit").textContent = t("manualUnit", {source: settings.manualSourceCurrency, target: settings.targetCurrency});
-  $("manual-only").textContent = t("manualOnly", {source: settings.manualSourceCurrency, target: settings.targetCurrency});
-  $("manual-target").textContent = settings.targetCurrency;
   if ((document.activeElement !== $("manual-rate") || !pendingSettings.has("manualRate")) && $("manual-rate").value !== settings.manualRate) $("manual-rate").value = settings.manualRate;
-  populateSelect($("source-currency"), codes, settings.manualSourceCurrency);
-  populateSelect($("target-currency"), codes, settings.targetCurrency);
+  renderCurrencyButton($("source-currency"), settings.manualSourceCurrency);
+  renderCurrencyButton($("target-currency"), settings.targetCurrency);
   if (inSetup) renderSetup();
   for (const button of document.querySelectorAll("[data-precision]")) {
     const active = button.dataset.precision === settings.precision;
@@ -153,24 +170,48 @@ function renderUI() {
   if (!$("color-picker").hidden && !liveAccent && document.activeElement !== $("hex-input")) $("hex-input").value = accent.toUpperCase();
   renderRate();
   renderStats();
+  renderUpdate();
   if (!viewReady) {
     viewReady = true;
     resizePopup();
   }
 }
 
+function fitRateText(element, rate, currency) {
+  const container = element.parentElement;
+  const full = SteamFX.formatRateAmount(rate, currency);
+  element.title = full;
+  element.textContent = full;
+  const labels = [...container.children].filter(child => child !== element);
+  for (const label of labels) label.hidden = false;
+  const whole = Math.max(2, Math.floor(Math.log10(rate)) + 1);
+  if (!container.getBoundingClientRect().width) return;
+  const fits = () => container.scrollWidth <= container.clientWidth + 0.5;
+  for (const compact of [false, true]) {
+    if (compact) for (const label of labels) label.hidden = true;
+    for (let digits = 10; digits >= whole; digits--) {
+      element.textContent = SteamFX.formatRateAmount(rate, currency, digits);
+      if (fits()) return;
+    }
+  }
+}
+
+function fitResult() {
+  const result = $("calculator-result");
+  result.classList.remove("long");
+  if (result.clientWidth && result.scrollWidth > result.clientWidth + 0.5) result.classList.add("long");
+}
+
 function fitRate() {
+  fitResult();
   const rateValue = $("rate-value");
-  const container = rateValue.parentElement;
-  const unit = $("unit-value").getBoundingClientRect();
-  if (!unit.height) {
-    container.dataset.size = rateValue.textContent.length > 18 ? "small" : rateValue.textContent.length > 9 ? "medium" : "large";
+  const rate = SteamFX.resolveRate(state, state.settings.manualSourceCurrency);
+  if (!rate) {
+    rateValue.textContent = "—";
+    rateValue.removeAttribute("title");
     return;
   }
-  for (const size of ["large", "medium", "small"]) {
-    container.dataset.size = size;
-    if (rateValue.getBoundingClientRect().top < unit.bottom - 2) break;
-  }
+  fitRateText(rateValue, rate.rate, state.settings.targetCurrency);
 }
 
 function renderSetup() {
@@ -183,8 +224,8 @@ function renderSetup() {
   $("setup-back").hidden = step === 0;
   $("setup-next").textContent = t(step === last ? "start" : "next");
   for (const button of $("setup-languages").children) button.setAttribute("aria-pressed", String(button.dataset.language === settings.language));
-  populateSelect($("setup-source"), codes, settings.manualSourceCurrency);
-  populateSelect($("setup-target"), codes, settings.targetCurrency);
+  renderCurrencyButton($("setup-source"), settings.manualSourceCurrency);
+  renderCurrencyButton($("setup-target"), settings.targetCurrency);
   $("setup-source-name").textContent = SteamFX.currencyName(settings.manualSourceCurrency, settings.language);
   $("setup-target-name").textContent = SteamFX.currencyName(settings.targetCurrency, settings.language);
   $("summary-language").textContent = SteamFX.languages[settings.language];
@@ -199,18 +240,30 @@ function renderSetupRate() {
     $("setup-rate").replaceChildren(node("span", "setup-rate-status", t(loading ? "fetching" : "unavailable")));
     return;
   }
+  const value = node("strong");
   $("setup-rate").replaceChildren(
-    node("span", "", `1 ${SteamFX.currencies[settings.manualSourceCurrency].symbol}`),
+    node("span", "", unitText(settings.manualSourceCurrency)),
     node("span", "rate-equals", "="),
-    node("strong", "", `${SteamFX.formatRate(rate.rate, settings.language)} ${SteamFX.currencies[settings.targetCurrency].symbol}`)
+    value
   );
+  fitRateText(value, rate.rate, settings.targetCurrency);
+}
+
+function renderLanguageButton() {
+  const button = $("language-select");
+  const code = state.settings.language;
+  if (button.dataset.code !== code || !button.firstChild) {
+    button.dataset.code = code;
+    const label = node("span", "", SteamFX.languages[code]);
+    label.lang = code;
+    button.replaceChildren(label, icon("chevron-icon"));
+  }
+  button.setAttribute("aria-label", `${t("language")}: ${SteamFX.languages[code]}`);
+  button.setAttribute("aria-expanded", String(currencyPicker.button === button));
 }
 
 function buildLanguages() {
   for (const [code, name] of Object.entries(SteamFX.languages)) {
-    const option = new Option(name, code);
-    option.lang = code;
-    $("language-select").append(option);
     const button = node("button", "language-option");
     button.type = "button";
     button.lang = code;
@@ -258,11 +311,7 @@ function renderScenes() {
   for (const scene of document.querySelectorAll("[data-scene]")) {
     const mode = scene.dataset.scene;
     const parts = [];
-    if (mode === "hover") {
-      const tip = node("span", "scene-tip");
-      tip.append(node("b", "", t("tipLabel")), node("span", "", samples.original(1000)));
-      parts.push(tip);
-    }
+    if (mode === "hover") parts.push(node("span", "scene-tip", samples.original(1000)));
     parts.push(priceChip(mode, samples));
     scene.replaceChildren(...parts);
   }
@@ -272,9 +321,7 @@ function renderScenes() {
   const parts = [line];
   if (mode === "hover") {
     const tip = node("span", "scene-tip");
-    const prices = node("span");
-    prices.append(node("s", "", samples.original(2000)), samples.original(1000));
-    tip.append(node("b", "", t("tipLabels")), prices);
+    tip.append(node("s", "", samples.original(2000)), node("span", "", samples.original(1000)));
     parts.push(tip);
   }
   $("display-preview").replaceChildren(...parts);
@@ -301,13 +348,14 @@ function drawLogo() {
   context.drawImage(logoSource, 0, 0, size, size);
   const image = context.getImageData(0, 0, size, size);
   SteamFXTheme.tintPixels(image.data, color);
+  SteamFXTheme.tintFill(image.data, color);
   context.putImageData(image, 0, 0);
   const src = canvas.toDataURL("image/png");
   if (color !== logoColor) return;
   logo.src = src;
   if (liveAccent) return;
   try {
-    localStorage.setItem("popupLogo", JSON.stringify({color, src}));
+    localStorage.setItem("popupLogo", JSON.stringify({color, src, version: 2}));
   } catch {}
 }
 
@@ -483,38 +531,36 @@ function renderRate() {
   const playwallet = rate?.source === "playwallet";
   const provider = playwallet ? "PlayWallet" : "SteamCurrency";
   const sourceLink = document.querySelector(".source-link");
-  sourceLink.href = playwallet ? "https://playwallet.bot/steam-currency" : "https://steam-currency.ru/";
+  const sourceUrl = playwallet ? "https://playwallet.bot/steam-currency" : "https://steam-currency.ru/";
+  sourceLink.href = sourceUrl;
+  $("menu-source").href = sourceUrl;
   sourceLink.querySelector("strong").textContent = playwallet ? "playwallet.bot" : "steam-currency.ru";
   sourceLink.hidden = !["widget", "table", "playwallet"].includes(rate?.source);
   $("source-card").hidden = sourceLink.hidden;
+  $("menu-copy").disabled = !rate || rate.source === "identity";
   const key = SteamFX.pairKey(settings.manualSourceCurrency, settings.targetCurrency);
   const failure = state.rateFailures[key];
   const manualInvalid = settings.manualEnabled && settings.manualSourceCurrency !== settings.targetCurrency && !SteamFX.positiveRate(settings.manualRate);
   $("manual-validation").hidden = !manualInvalid;
   $("manual-rate").setAttribute("aria-invalid", String(manualInvalid));
-  $("unit-value").textContent = `1 ${SteamFX.currencies[settings.manualSourceCurrency].symbol}`;
-  const rateValue = $("rate-value");
-  rateValue.textContent = rate ? `${SteamFX.formatRate(rate.rate, settings.language)} ${SteamFX.currencies[settings.targetCurrency].symbol}` : "—";
+  $("unit-value").textContent = unitText(settings.manualSourceCurrency);
   fitRate();
-  const badge = $("mode-badge");
-  badge.classList.toggle("manual", settings.manualEnabled);
-  badge.classList.toggle("stale", Boolean(rate?.stale));
-  badge.querySelector("b").textContent = t(settings.manualEnabled ? "manual" : rate?.stale ? "stale" : "automatic");
-  $("refresh").disabled = loading || settings.manualEnabled || !settings.enabled || settings.manualSourceCurrency === settings.targetCurrency;
+  $("refresh").disabled = loading || settings.manualEnabled || settings.manualSourceCurrency === settings.targetCurrency;
   $("refresh").classList.toggle("loading", loading);
-  $("provider-date").textContent = "";
-  if (loading) $("rate-status").textContent = t("fetching");
-  else if (!settings.enabled) $("rate-status").textContent = t("paused");
-  else if (settings.manualEnabled) $("rate-status").textContent = t(manualInvalid ? "noRate" : "manual");
+  const status = $("rate-status");
+  status.classList.toggle("stale", Boolean(rate?.stale) && !loading);
+  status.removeAttribute("title");
+  if (loading) status.textContent = t("fetching");
+  else if (rate?.stale) status.textContent = t("stale");
   else if (rate?.fetchedAt) {
     const time = new Intl.DateTimeFormat(SteamFX.localeOf(settings.language), {day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit"}).format(rate.fetchedAt);
-    $("rate-status").textContent = t("cached", {time});
-    $("provider-date").textContent = provider;
-  } else $("rate-status").textContent = t(rate ? "automatic" : "unavailable");
+    status.textContent = t("cached", {time});
+    status.title = provider;
+  } else status.textContent = rate ? "" : t("unavailable");
   let error = "";
   if (storageError) error = t("storageError");
-  else if (!settings.manualEnabled && settings.enabled && rate?.stale) error = t("staleHint");
-  else if (!settings.manualEnabled && settings.enabled && !rate && failure) error = t(failure.code === "PAIR_UNAVAILABLE" ? "pairError" : failure.code === "FORMAT" ? "formatError" : "networkError");
+  else if (!settings.manualEnabled && rate?.stale) error = t("staleHint");
+  else if (!settings.manualEnabled && !rate && failure) error = t(failure.code === "PAIR_UNAVAILABLE" ? "pairError" : failure.code === "FORMAT" ? "formatError" : "networkError");
   $("error").hidden = !error;
   $("error").textContent = error;
   renderScenes();
@@ -523,19 +569,111 @@ function renderRate() {
   renderCalcView();
 }
 
+function unitText(code) {
+  return SteamFX.formatMoney(1, code, {precision: "0"});
+}
+
+function usdValue(code) {
+  if (code === "USD") return 1;
+  const edges = new Map();
+  const link = (from, to, rate) => {
+    if (!edges.has(from)) edges.set(from, []);
+    edges.get(from).push([to, rate]);
+  };
+  for (const [key, entry] of Object.entries(state.rateCache?.entries || {})) {
+    const [from, to] = key.split(":");
+    const rate = SteamFX.positiveRate(entry?.rate);
+    if (!rate || from === to || !SteamFX.isCurrency(from) || !SteamFX.isCurrency(to)) continue;
+    link(from, to, rate);
+    link(to, from, 1 / rate);
+  }
+  const settings = state.settings;
+  const manual = SteamFX.resolveRate(state, settings.manualSourceCurrency);
+  if (manual?.source === "manual") {
+    link(settings.manualSourceCurrency, settings.targetCurrency, manual.rate);
+    link(settings.targetCurrency, settings.manualSourceCurrency, 1 / manual.rate);
+  }
+  const values = new Map([[code, 1]]);
+  const queue = [code];
+  while (queue.length) {
+    const current = queue.shift();
+    for (const [next, rate] of edges.get(current) || []) {
+      if (values.has(next)) continue;
+      const value = values.get(current) * rate;
+      if (next === "USD") return value;
+      values.set(next, value);
+      queue.push(next);
+    }
+  }
+  return null;
+}
+
+function roundAmount(value) {
+  const exponent = Math.floor(Math.log10(value));
+  let best = 1;
+  let distance = Infinity;
+  for (let power = exponent - 1; power <= exponent + 1; power++) {
+    for (const step of [1, 2, 5]) {
+      const candidate = Math.round(step * 10 ** power);
+      const gap = Math.abs(Math.log(candidate / value));
+      if (candidate >= 1 && gap < distance) {
+        best = candidate;
+        distance = gap;
+      }
+    }
+  }
+  return best;
+}
+
+function requestAnchor(code) {
+  const settings = state.settings;
+  if (anchorRequests.has(code) || settings.manualEnabled) return;
+  anchorRequests.add(code);
+  chrome.runtime.sendMessage({type: "GET_PAIRS", pairs: [[code, "USD"]]}).catch(() => {});
+}
+
+function suggestAmount(field, code) {
+  if (field.code !== code) {
+    field.code = code;
+    field.touched = false;
+  }
+  if (field.touched || !ratesLoaded) return;
+  const usd = usdValue(code);
+  if (!usd) requestAnchor(code);
+  const value = String(usd ? roundAmount(anchorPrice / usd) : fallbackAmount);
+  if ($(field.id).value !== value) $(field.id).value = value;
+}
+
 function renderCalculator() {
-  const source = state.settings.manualSourceCurrency;
-  $("calculator-source").textContent = source;
+  const settings = state.settings;
+  const from = quickReverse ? settings.targetCurrency : settings.manualSourceCurrency;
+  const to = quickReverse ? settings.manualSourceCurrency : settings.targetCurrency;
+  suggestAmount(amountFields.quick, from);
+  $("calculator-source").textContent = from;
+  $("quick-swap").setAttribute("aria-pressed", String(quickReverse));
   const amount = SteamFXPrices.parseAmount($("calculator-amount").value);
-  const rate = SteamFX.resolveRate(state, source);
-  $("calculator-result").textContent = amount !== null && rate ? SteamFX.formatMoney(amount * rate.rate, state.settings.targetCurrency, state.settings) : "—";
+  const rate = SteamFX.resolveRate(state, settings.manualSourceCurrency);
+  const result = $("calculator-result");
+  result.textContent = amount !== null && rate ? SteamFX.formatMoney(quickReverse ? amount / rate.rate : amount * rate.rate, to, settings) : "—";
+  result.title = result.textContent;
+  fitResult();
   $("calculator-amount").setAttribute("aria-invalid", String(amount === null));
   resizePopup();
 }
 
+function renderUpdate() {
+  const status = SteamFX.updateStatus(updateInfo, chrome.runtime.getManifest().version);
+  $("update-card").hidden = !status.available;
+  if (!status.available) return;
+  $("update-title").textContent = t("updateTitle", {version: status.latest});
+  $("update-installed").textContent = t("updateInstalled", {current: status.current});
+  $("update-link").href = SteamFX.releasesUrl;
+}
+
 function renderStats() {
-  $("page-stats").textContent = !state.settings.enabled ? t("paused") : pageStats ? t("converted", {count: pageStats.count}) : t("openSteam");
-  document.querySelector(".page-status").classList.toggle("active", Boolean(state.settings.enabled && pageStats?.count));
+  $("page-status").hidden = !pageStats;
+  $("page-stats").textContent = !pageStats ? "" : state.settings.enabled ? t("converted", {count: pageStats.count}) : t("paused");
+  $("page-status").classList.toggle("active", Boolean(state.settings.enabled && pageStats?.count));
   resizePopup();
 }
 
@@ -562,6 +700,7 @@ async function persist(patch) {
 }
 
 function change(patch, refresh = false) {
+  if (patch.targetCurrency && patch.targetCurrency !== state.settings.targetCurrency && !patch.calcCurrencies) patch = {...patch, calcCurrencies: leadCurrency(patch.targetCurrency)};
   if (patch.targetCurrency && patch.targetCurrency !== state.settings.targetCurrency || patch.manualSourceCurrency && patch.manualSourceCurrency !== state.settings.manualSourceCurrency) patch = {...patch, manualRate: ""};
   state.settings = SteamFX.normalizeSettings({...state.settings, ...patch});
   patch = Object.fromEntries(Object.keys(patch).map(key => [key, state.settings[key]]));
@@ -614,6 +753,8 @@ async function readPageStats() {
 function showView(name, opener = null) {
   if (!views.includes(name)) return;
   closePicker(false);
+  closeCurrencyPicker(false);
+  closeRateMenu(false);
   if (name !== "calculator") closeCalcPicker();
   const previous = currentView;
   currentView = name;
@@ -628,6 +769,7 @@ function showView(name, opener = null) {
     if (opener && document.activeElement === opener) $(`${name}-panel`).querySelector("[data-back]").focus();
   }
   if (name === "calculator") {
+    if (previous !== "calculator") amountFields.calc.touched = false;
     renderCalcView();
     loadCalcRates();
   }
@@ -767,7 +909,8 @@ function calcRow(code) {
 function renderCalcView() {
   if (currentView !== "calculator") return;
   const settings = state.settings;
-  populateSelect($("calc-source"), codes, settings.calcSource);
+  renderCurrencyButton($("calc-source"), settings.calcSource);
+  suggestAmount(amountFields.calc, settings.calcSource);
   const amount = SteamFXPrices.parseAmount($("calc-amount").value);
   $("calc-amount").setAttribute("aria-invalid", String(amount === null));
   const targets = calcTargets();
@@ -796,10 +939,9 @@ function renderCalcView() {
   if (!rowDrag && (items.length !== container.children.length || items.some((row, index) => container.children[index] !== row))) container.replaceChildren(...items);
   container.hidden = !items.length;
   container.classList.toggle("single", items.length < 2);
-  const automatic = settings.enabled && !settings.manualEnabled;
+  const automatic = !settings.manualEnabled;
   let status = "";
   if (calcLoading) status = t("fetching");
-  else if (!settings.enabled) status = t("paused");
   else if (rates.some(rate => rate?.source === "manual")) status = t("manualOnly", {source: settings.manualSourceCurrency, target: settings.targetCurrency});
   else if (rates.some(rate => rate?.stale)) status = t("staleHint");
   else if (automatic && targets.some((code, index) => !rates[index] && state.rateFailures[SteamFX.pairKey(settings.calcSource, code)]?.code === "NETWORK")) status = t("networkError");
@@ -821,7 +963,7 @@ async function loadCalcRates(force = false) {
   if (!pairs.length) return;
   const version = ++calcVersion;
   const revision = cacheRevision;
-  calcLoading = settings.enabled && !settings.manualEnabled;
+  calcLoading = !settings.manualEnabled;
   renderCalcView();
   try {
     const response = await chrome.runtime.sendMessage({type: "GET_PAIRS", pairs, force});
@@ -914,28 +1056,236 @@ function closeCalcPicker() {
   resizePopup();
 }
 
-$("language-select").addEventListener("change", event => chooseLanguage(event.target.value));
+function leadCurrency(target) {
+  const previous = state.settings.targetCurrency;
+  const order = [target, ...calcOrder().filter(code => code !== target)];
+  return order.length - 1 > SteamFX.calcLimit ? order.filter(code => code !== previous) : order;
+}
+
+function currencyMatches(query) {
+  const text = query.trim().toLocaleLowerCase();
+  if (!text) return [...codes];
+  const language = state.settings.language;
+  return codes.map((code, index) => {
+    const names = [...new Set([SteamFX.currencyName(code, language), SteamFX.currencyName(code, "en")].map(name => name.toLocaleLowerCase()))];
+    const symbol = SteamFX.currencies[code].symbol.toLocaleLowerCase();
+    const lower = code.toLowerCase();
+    let score = 0;
+    if (lower === text || symbol === text) score = 5;
+    else if (lower.startsWith(text)) score = 4;
+    else if (names.some(name => name.startsWith(text))) score = 3;
+    else if (names.some(name => name.split(/[\s-]+/).some(word => word.startsWith(text)))) score = 2;
+    else if (names.some(name => name.includes(text)) || symbol.includes(text)) score = 1;
+    return {code, score, index};
+  }).filter(item => item.score).sort((a, b) => b.score - a.score || a.index - b.index).map(item => item.code);
+}
+
+function pickerOption(code) {
+  const option = node("button", "currency-option");
+  if (currencyPicker.field === "language") {
+    option.classList.add("language-choice");
+    option.lang = code;
+    option.append(node("span", "option-name", SteamFX.languages[code]), icon("check-icon"));
+  } else option.append(node("b", "", code), node("span", "option-name", SteamFX.currencyName(code, state.settings.language)), node("span", "option-symbol", SteamFX.currencies[code].symbol), icon("check-icon"));
+  return option;
+}
+
+function pickerFocus() {
+  return currencyPicker.field === "language" ? $("currency-list") : $("currency-search");
+}
+
+function renderCurrencyList() {
+  const language = currencyPicker.field === "language";
+  const selected = state.settings[currencyPicker.field];
+  const query = language ? "" : $("currency-search").value;
+  const items = language ? Object.keys(SteamFX.languages) : currencyMatches(query);
+  currencyPicker.items = items;
+  currencyPicker.active = query.trim() ? 0 : Math.max(0, items.indexOf(selected));
+  $("currency-list").replaceChildren(...items.map((code, index) => {
+    const option = pickerOption(code);
+    option.type = "button";
+    option.id = `currency-option-${code}`;
+    option.tabIndex = -1;
+    option.dataset.code = code;
+    option.setAttribute("role", "option");
+    option.setAttribute("aria-selected", String(code === selected));
+    option.addEventListener("pointerdown", event => event.preventDefault());
+    option.addEventListener("click", () => chooseCurrency(code));
+    option.addEventListener("pointermove", () => {
+      if (currencyPicker.active !== index) setActiveCurrency(index, false);
+    });
+    return option;
+  }));
+  $("currency-list").hidden = !items.length;
+  $("currency-empty").hidden = Boolean(items.length);
+  setActiveCurrency(currencyPicker.active, true);
+}
+
+function setActiveCurrency(index, scroll) {
+  const options = $("currency-list").children;
+  if (!options.length) {
+    pickerFocus().removeAttribute("aria-activedescendant");
+    return;
+  }
+  currencyPicker.active = Math.min(options.length - 1, Math.max(0, index));
+  for (const [position, option] of [...options].entries()) option.classList.toggle("active", position === currencyPicker.active);
+  const active = options[currencyPicker.active];
+  pickerFocus().setAttribute("aria-activedescendant", active.id);
+  if (scroll) active.scrollIntoView({block: "nearest"});
+}
+
+function positionCurrencyPicker() {
+  const element = $("currency-picker");
+  const area = popupContent.getBoundingClientRect();
+  const anchor = currencyPicker.button.getBoundingClientRect();
+  const width = Math.min(currencyPicker.field === "language" ? 220 : 252, area.width - 24);
+  const left = Math.min(area.width - width - 12, Math.max(12, (anchor.width > width ? anchor.left : anchor.right - width) - area.left));
+  const below = area.bottom - anchor.bottom - 12;
+  const above = anchor.top - area.top - 12;
+  const down = below >= 230 || below >= above;
+  const space = Math.min(300, (down ? below : above) - 6);
+  element.style.width = `${width}px`;
+  element.style.left = `${left}px`;
+  element.style.maxHeight = `${space}px`;
+  element.style.top = down ? `${anchor.bottom - area.top + 6}px` : "auto";
+  element.style.bottom = down ? "auto" : `${area.bottom - anchor.top + 6}px`;
+  element.classList.toggle("above", !down);
+}
+
+function openCurrencyPicker(button) {
+  if (currencyPicker.button === button) {
+    closeCurrencyPicker(true);
+    return;
+  }
+  closeRateMenu(false);
+  closeCurrencyPicker(false);
+  currencyPicker.button = button;
+  currencyPicker.field = button.dataset.currencyField;
+  const language = currencyPicker.field === "language";
+  button.setAttribute("aria-expanded", "true");
+  $("currency-search").value = "";
+  $("currency-search").removeAttribute("aria-activedescendant");
+  $("currency-list").removeAttribute("aria-activedescendant");
+  $("currency-picker").classList.toggle("no-search", language);
+  $("currency-list").tabIndex = language ? 0 : -1;
+  $("currency-picker").setAttribute("aria-label", language ? t("language") : button.dataset.label ? t(button.dataset.label) : button.closest("[class$='field']")?.querySelector("span")?.textContent || t("search"));
+  $("currency-picker").hidden = false;
+  positionCurrencyPicker();
+  renderCurrencyList();
+  pickerFocus().focus();
+}
+
+function closeCurrencyPicker(restoreFocus) {
+  const button = currencyPicker.button;
+  if (!button) return;
+  currencyPicker.button = null;
+  $("currency-picker").hidden = true;
+  button.setAttribute("aria-expanded", "false");
+  if (restoreFocus) button.focus();
+}
+
+function chooseCurrency(code) {
+  const field = currencyPicker.field;
+  closeCurrencyPicker(true);
+  if (state.settings[field] === code) return;
+  if (field === "language") chooseLanguage(code);
+  else if (field === "calcSource") {
+    change({calcSource: code});
+    loadCalcRates();
+  } else change({[field]: code}, true);
+}
+
+function menuItems() {
+  return [...$("rate-menu").querySelectorAll("[role^='menuitem']")].filter(item => !item.disabled);
+}
+
+function openRateMenu() {
+  closeCurrencyPicker(false);
+  $("rate-menu").hidden = false;
+  $("rate-menu-button").setAttribute("aria-expanded", "true");
+  resizePopup();
+  (menuItems().find(item => item.getAttribute("aria-checked") === "true") || menuItems()[0])?.focus();
+}
+
+function closeRateMenu(restoreFocus) {
+  if ($("rate-menu").hidden) return;
+  clearTimeout(copyTimer);
+  copyTimer = 0;
+  $("menu-copy").classList.remove("copied");
+  $("menu-copy").querySelector("span").textContent = t("copyRate");
+  $("rate-menu").hidden = true;
+  $("rate-menu-button").setAttribute("aria-expanded", "false");
+  resizePopup();
+  if (restoreFocus) $("rate-menu-button").focus();
+}
+
+function chooseRateMode(mode) {
+  const manual = mode === "manual";
+  closeRateMenu(!manual);
+  if (manual !== state.settings.manualEnabled) change({manualEnabled: manual}, true);
+  if (manual) requestAnimationFrame(() => $("manual-rate").focus());
+}
+
+async function copyRate() {
+  const settings = state.settings;
+  const rate = SteamFX.resolveRate(state, settings.manualSourceCurrency);
+  if (!rate) return;
+  const text = `${unitText(settings.manualSourceCurrency)} = ${SteamFX.formatRateAmount(rate.rate, settings.targetCurrency)}`;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    const area = node("textarea", "visually-hidden", text);
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  $("menu-copy").classList.add("copied");
+  $("menu-copy").querySelector("span").textContent = t("copied");
+  clearTimeout(copyTimer);
+  copyTimer = setTimeout(() => closeRateMenu(true), 900);
+}
+
+function swapCurrencies() {
+  const settings = state.settings;
+  if (settings.manualSourceCurrency === settings.targetCurrency) return;
+  change({manualSourceCurrency: settings.targetCurrency, targetCurrency: settings.manualSourceCurrency}, true);
+}
+
 $("open-calculator").addEventListener("click", event => showView("calculator", event.currentTarget));
 $("open-settings").addEventListener("click", event => showView("settings", event.currentTarget));
 for (const button of document.querySelectorAll("[data-back]")) button.addEventListener("click", () => {
   if (calcEditing) closeCalcPicker();
   else showView("prices");
 });
-$("calc-amount").addEventListener("input", event => {
-  try {
-    localStorage.setItem("calcAmount", event.target.value);
-  } catch {}
-  renderCalcView();
+function selectOnFocus(input) {
+  let pointerFocus = false;
+  input.addEventListener("mousedown", () => {
+    pointerFocus = document.activeElement !== input;
+  });
+  input.addEventListener("focus", () => input.select());
+  input.addEventListener("mouseup", event => {
+    if (!pointerFocus) return;
+    pointerFocus = false;
+    event.preventDefault();
+    input.select();
+  });
+}
+
+selectOnFocus($("calculator-amount"));
+document.querySelector(".amount-box").addEventListener("mousedown", event => {
+  if (event.target === $("calculator-amount")) return;
+  event.preventDefault();
+  $("calculator-amount").focus();
 });
-$("calc-source").addEventListener("change", event => {
-  change({calcSource: event.target.value});
-  loadCalcRates();
+selectOnFocus($("calc-amount"));
+$("calc-amount").addEventListener("input", () => {
+  amountFields.calc.touched = true;
+  renderCalcView();
 });
 $("calc-refresh").addEventListener("click", () => loadCalcRates(true));
 $("calc-edit").addEventListener("click", openCalcPicker);
 $("calc-done").addEventListener("click", closeCalcPicker);
-$("setup-source").addEventListener("change", event => change({manualSourceCurrency: event.target.value}, true));
-$("setup-target").addEventListener("change", event => change({targetCurrency: event.target.value}, true));
 $("setup-next").addEventListener("click", () => {
   const step = state.settings.setupStep;
   if (step < SteamFX.setupSteps - 1) goToStep(step + 1);
@@ -944,14 +1294,18 @@ $("setup-next").addEventListener("click", () => {
 $("setup-back").addEventListener("click", () => goToStep(state.settings.setupStep - 1));
 for (const button of document.querySelectorAll("[data-mode]")) button.addEventListener("click", () => change(SteamFX.displayPatch(button.dataset.mode)));
 $("enabled").addEventListener("change", event => change({enabled: event.target.checked}, true));
-$("manual-enabled").addEventListener("change", event => change({manualEnabled: event.target.checked}, true));
-$("source-currency").addEventListener("change", event => change({manualSourceCurrency: event.target.value}, true));
-$("target-currency").addEventListener("change", event => change({targetCurrency: event.target.value}, true));
 $("refresh").addEventListener("click", () => loadState(true));
 $("manual-rate").addEventListener("input", event => {
   change({manualRate: event.target.value});
 });
-$("calculator-amount").addEventListener("input", renderCalculator);
+$("calculator-amount").addEventListener("input", () => {
+  amountFields.quick.touched = true;
+  renderCalculator();
+});
+$("quick-swap").addEventListener("click", () => {
+  quickReverse = !quickReverse;
+  renderCalculator();
+});
 for (const button of document.querySelectorAll("[data-precision]")) button.addEventListener("click", () => change({precision: button.dataset.precision}));
 $("custom-color").addEventListener("click", event => {
   if ($("color-picker").hidden) openPicker(event.detail === 0);
@@ -1003,6 +1357,57 @@ $("hex-input").addEventListener("keydown", event => {
   event.preventDefault();
   commitHex();
 });
+for (const button of document.querySelectorAll("[data-currency-field]")) button.addEventListener("click", () => openCurrencyPicker(button));
+$("currency-search").addEventListener("input", renderCurrencyList);
+function pickerKeys(event) {
+  const moves = {ArrowDown: 1, ArrowUp: -1, PageDown: 6, PageUp: -6};
+  if (moves[event.key]) {
+    event.preventDefault();
+    setActiveCurrency(currencyPicker.active + moves[event.key], true);
+  } else if (event.key === "Enter") {
+    event.preventDefault();
+    const code = currencyPicker.items[currencyPicker.active];
+    if (code) chooseCurrency(code);
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeCurrencyPicker(true);
+  } else if (event.key === "Home" || event.key === "End") {
+    if (currencyPicker.field !== "language") return;
+    event.preventDefault();
+    setActiveCurrency(event.key === "Home" ? 0 : currencyPicker.items.length - 1, true);
+  } else if (event.key === "Tab") closeCurrencyPicker(false);
+}
+$("currency-search").addEventListener("keydown", pickerKeys);
+$("currency-list").addEventListener("keydown", event => {
+  if (currencyPicker.field === "language") pickerKeys(event);
+});
+$("swap-currencies").addEventListener("click", swapCurrencies);
+$("rate-menu-button").addEventListener("click", () => {
+  if ($("rate-menu").hidden) openRateMenu();
+  else closeRateMenu(true);
+});
+for (const button of document.querySelectorAll("[data-rate-mode]")) button.addEventListener("click", () => chooseRateMode(button.dataset.rateMode));
+$("menu-copy").addEventListener("click", copyRate);
+$("menu-source").addEventListener("click", () => closeRateMenu(false));
+$("rate-menu").addEventListener("keydown", event => {
+  const items = menuItems();
+  const index = items.indexOf(document.activeElement);
+  const moves = {ArrowDown: 1, ArrowUp: -1};
+  if (moves[event.key]) {
+    event.preventDefault();
+    items[(index + moves[event.key] + items.length) % items.length]?.focus();
+  } else if (event.key === "Home" || event.key === "End") {
+    event.preventDefault();
+    items[event.key === "Home" ? 0 : items.length - 1]?.focus();
+  } else if (event.key === "Escape") {
+    event.preventDefault();
+    closeRateMenu(true);
+  } else if (event.key === "Tab") closeRateMenu(false);
+});
+document.addEventListener("pointerdown", event => {
+  if (currencyPicker.button && !$("currency-picker").contains(event.target) && !currencyPicker.button.contains(event.target)) closeCurrencyPicker(false);
+  if (!$("rate-menu").hidden && !$("rate-menu").contains(event.target) && !$("rate-menu-button").contains(event.target)) closeRateMenu(false);
+}, true);
 document.addEventListener("pointerdown", event => {
   if ($("color-picker").hidden || $("color-picker").contains(event.target) || $("custom-color").contains(event.target)) return;
   closePicker(false);
@@ -1030,15 +1435,16 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (changes.rateCache || changes.rateFailures) cacheRevision++;
   if (changes.rateCache) state.rateCache = changes.rateCache.newValue || {entries: {}};
   if (changes.rateFailures) state.rateFailures = changes.rateFailures.newValue || {};
+  if (changes.updateInfo) updateInfo = changes.updateInfo.newValue || null;
   if (changes.settings) renderUI();
   else if (changes.rateCache || changes.rateFailures) renderRate();
+  if (changes.updateInfo) {
+    renderUpdate();
+    resizePopup();
+  }
 });
 
 $("version").textContent = `Currency Lens ${chrome.runtime.getManifest().version}`;
-try {
-  const amount = localStorage.getItem("calcAmount");
-  if (typeof amount === "string" && amount.length <= 24) $("calc-amount").value = amount;
-} catch {}
 buildLanguages();
 buildSwatches();
 buildCalcGrid();
@@ -1047,18 +1453,21 @@ if (cachedView) {
   state.settings = SteamFX.normalizeSettings({...SteamFX.defaults, ...cachedView});
   renderUI();
 }
-chrome.storage.local.get(["settings", "rateCache", "rateFailures"]).then(stored => {
+chrome.storage.local.get(["settings", "rateCache", "rateFailures", "updateInfo"]).then(stored => {
   if (!settingsLoaded) state.settings = optimisticSettings(stored.settings);
+  updateInfo = stored.updateInfo || null;
   if (!cacheRevision) {
     state.rateCache = stored.rateCache || {entries: {}};
     state.rateFailures = stored.rateFailures || {};
   }
   settingsLoaded = true;
+  ratesLoaded = true;
   renderUI();
   loadState();
   readPageStats();
 }).catch(() => {
   storageError = true;
+  ratesLoaded = true;
   renderUI();
 });
 setInterval(readPageStats, 700);

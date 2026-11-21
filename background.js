@@ -6,6 +6,9 @@ const TTL = 6 * 60 * 60 * 1000;
 const RETRY_DELAY = 15 * 60 * 1000;
 const REFRESH_COOLDOWN = 60 * 1000;
 const ALARM = "steam-fx-refresh";
+const UPDATE_ALARM = "update-check";
+const UPDATE_API = "https://api.github.com/repos/toxi-gh/Steam_Currency_Converter/releases/latest";
+const DAY = 24 * 60 * 60 * 1000;
 const inFlight = new Map();
 const controllers = new Set();
 const snapshotRequests = new Map();
@@ -39,6 +42,10 @@ function isAutomatic(settings) {
   return settings.enabled && !settings.manualEnabled;
 }
 
+function canFetch(settings, user = false) {
+  return !settings.manualEnabled && (settings.enabled || user);
+}
+
 function fresh(value, force = false) {
   return SteamFX.validTimestamp(value?.fetchedAt) && Date.now() - value.fetchedAt < (force ? REFRESH_COOLDOWN : TTL);
 }
@@ -66,9 +73,9 @@ function usableSnapshot(value, key) {
   return value.pairs && Object.keys(value.pairs).length > 0 && Object.entries(value.pairs).every(([pair, row]) => validPair(pair) && SteamFX.positiveRate(row?.rate) && typeof row.providerUpdatedAt === "string" && Number.isFinite(Date.parse(row.providerUpdatedAt)));
 }
 
-async function currentPair(target, epoch, free = false) {
+async function currentPair(target, epoch, free = false, user = false) {
   const settings = await settingsNow();
-  return epoch === requestEpoch && isAutomatic(settings) && (free || settings.targetCurrency === target);
+  return epoch === requestEpoch && canFetch(settings, user) && (free || settings.targetCurrency === target);
 }
 
 function failureRecord(error) {
@@ -86,7 +93,7 @@ function unavailableHost(error) {
 }
 
 async function fetchText(url) {
-  if (!isAutomatic(await settingsNow())) throw new Error("CANCELLED");
+  if ((await settingsNow()).manualEnabled) throw new Error("CANCELLED");
   const controller = new AbortController();
   controllers.add(controller);
   const timer = setTimeout(() => controller.abort(), 12000);
@@ -104,10 +111,10 @@ async function fetchText(url) {
     }
     const text = await response.text();
     if (text.length > 2000000) throw new Error("FORMAT");
-    if (controller.signal.reason?.message === "CANCELLED" || !isAutomatic(await settingsNow())) throw new Error("CANCELLED");
+    if (controller.signal.reason?.message === "CANCELLED" || (await settingsNow()).manualEnabled) throw new Error("CANCELLED");
     return text;
   } catch (error) {
-    if (error.message === "CANCELLED" || controller.signal.reason?.message === "CANCELLED" || !isAutomatic(await settingsNow())) throw new Error("CANCELLED");
+    if (error.message === "CANCELLED" || controller.signal.reason?.message === "CANCELLED" || (await settingsNow()).manualEnabled) throw new Error("CANCELLED");
     throw Object.assign(new Error(error.message === "FORMAT" ? "FORMAT" : "NETWORK"), {status: error.status, retryAt: error.retryAt});
   } finally {
     clearTimeout(timer);
@@ -123,7 +130,7 @@ async function snapshot(cacheKey, failureKey, loader, force) {
     if (validFailure(stored[failureKey]) && stored[failureKey].retryAt > Date.now()) throw storedError(stored[failureKey]);
     try {
       const parsed = await loader();
-      if (!isAutomatic(await settingsNow())) throw new Error("CANCELLED");
+      if ((await settingsNow()).manualEnabled) throw new Error("CANCELLED");
       const value = {...parsed, fetchedAt: Date.now()};
       await chrome.storage.local.set({[cacheKey]: value, [failureKey]: null});
       return value;
@@ -189,7 +196,7 @@ async function obtainPair(source, target, force) {
   return SteamFXSource.playWalletPair(rates, source, target);
 }
 
-function ensurePair(source, target, force, free = false) {
+function ensurePair(source, target, force, free = false, user = false) {
   const key = SteamFX.pairKey(source, target);
   const pending = inFlight.get(key);
   if (pending?.epoch === requestEpoch) return pending.task;
@@ -201,13 +208,13 @@ function ensurePair(source, target, force, free = false) {
     const failed = validFailure(failure) && failure.version === 2 && (!validEntry(entry) || failure.at >= entry.fetchedAt);
     if (validEntry(entry) && fresh(entry, force) && !failed) return;
     if (failed && Date.now() < (force ? failure.at + REFRESH_COOLDOWN : failure.retryAt)) return;
-    if (!await currentPair(target, epoch, free)) return;
+    if (!await currentPair(target, epoch, free, user)) return;
     const operation = requestQueue.then(async () => {
-      if (!await currentPair(target, epoch, free)) return;
+      if (!await currentPair(target, epoch, free, user)) return;
       try {
         const result = await obtainPair(source, target, force || failed && validEntry(entry));
-        if (!await currentPair(target, epoch, free)) return;
-        const saved = await updateStored("rateCache", async value => await currentPair(target, epoch, free) ? {version: 1, entries: {...value?.entries, [key]: {...result, fetchedAt: result.fetchedAt || Date.now()}}} : undefined);
+        if (!await currentPair(target, epoch, free, user)) return;
+        const saved = await updateStored("rateCache", async value => await currentPair(target, epoch, free, user) ? {version: 1, entries: {...value?.entries, [key]: {...result, fetchedAt: result.fetchedAt || Date.now()}}} : undefined);
         if (!saved) return;
         await updateStored("rateFailures", value => {
           const next = {...value};
@@ -215,7 +222,7 @@ function ensurePair(source, target, force, free = false) {
           return next;
         });
       } catch (error) {
-        if (error.message === "CANCELLED" || !await currentPair(target, epoch, free)) return;
+        if (error.message === "CANCELLED" || !await currentPair(target, epoch, free, user)) return;
         await updateStored("rateFailures", value => ({...value, [key]: {...failureRecord(error), version: 2}}));
       }
     });
@@ -261,11 +268,11 @@ function updateSettings(patch) {
   });
 }
 
-async function loadState(sources, force = false) {
+async function loadState(sources, force = false, user = false) {
   const settings = await settingsNow();
   const requested = Array.isArray(sources) ? sources : [settings.manualSourceCurrency];
   const valid = [...new Set(requested)].filter(code => SteamFX.isCurrency(code) && code !== settings.targetCurrency).slice(0, Object.keys(SteamFX.currencies).length);
-  if (isAutomatic(settings)) await Promise.all(valid.map(source => ensurePair(source, settings.targetCurrency, force)));
+  if (canFetch(settings, user)) await Promise.all(valid.map(source => ensurePair(source, settings.targetCurrency, force, false, user)));
   const stored = await chrome.storage.local.get(["settings", "rateCache", "rateFailures"]);
   await scheduleRefresh();
   return {settings: SteamFX.normalizeSettings(stored.settings), rateCache: stored.rateCache || {version: 1, entries: {}}, rateFailures: stored.rateFailures || {}};
@@ -275,7 +282,7 @@ async function loadPairs(pairs, force = false) {
   const settings = await settingsNow();
   const requested = Array.isArray(pairs) ? pairs : [];
   const valid = [...new Set(requested.filter(pair => Array.isArray(pair) && pair.length === 2).map(([source, target]) => SteamFX.pairKey(source, target)))].filter(validPair).slice(0, SteamFX.calcLimit + 1);
-  if (isAutomatic(settings)) await Promise.all(valid.map(key => ensurePair(...key.split(":"), force, true)));
+  if (canFetch(settings, true)) await Promise.all(valid.map(key => ensurePair(...key.split(":"), force, true, true)));
   const stored = await chrome.storage.local.get(["settings", "rateCache", "rateFailures"]);
   return {settings: SteamFX.normalizeSettings(stored.settings), rateCache: stored.rateCache || {version: 1, entries: {}}, rateFailures: stored.rateFailures || {}};
 }
@@ -290,7 +297,61 @@ function allowedSender(sender) {
   }
 }
 
+function updateRecord(value) {
+  const record = value && typeof value === "object" ? value : {};
+  return {latest: SteamFX.parseVersion(record.latest), skipped: SteamFX.parseVersion(record.skipped), checkedAt: Number.isFinite(record.checkedAt) ? record.checkedAt : 0};
+}
+
+let updateCheck = null;
+
+function checkUpdate(force = false) {
+  if (updateCheck) return updateCheck;
+  updateCheck = (async () => {
+    const {updateInfo} = await chrome.storage.local.get("updateInfo");
+    const record = updateRecord(updateInfo);
+    if (!force && Date.now() - record.checkedAt < DAY) return;
+    try {
+      const response = await fetch(UPDATE_API, {credentials: "omit", cache: "no-store", headers: {Accept: "application/vnd.github+json"}, signal: AbortSignal.timeout(15000)});
+      if (!response.ok && response.status !== 404) throw new Error("NETWORK");
+      const release = response.ok ? await response.json() : {};
+      const latest = SteamFX.parseVersion(release?.tag_name) || SteamFX.parseVersion(release?.name);
+      await updateStored("updateInfo", value => ({...updateRecord(value), latest, checkedAt: Date.now()}));
+    } catch {}
+  })().finally(() => {
+    updateCheck = null;
+  });
+  return updateCheck;
+}
+
+async function scheduleUpdates() {
+  if (!await chrome.alarms.get(UPDATE_ALARM)) await chrome.alarms.create(UPDATE_ALARM, {delayInMinutes: 60, periodInMinutes: 60});
+  await checkUpdate();
+}
+
+async function pageAction(message) {
+  const settings = await settingsNow();
+  const currency = SteamFX.isCurrency(message.currency) ? message.currency : null;
+  if (message.action === "accept") return updateSettings({termsAccepted: true});
+  if (message.action === "mute") return updateSettings({promptMuted: true});
+  if (message.action === "skipUpdate") {
+    const version = SteamFX.parseVersion(message.version);
+    if (!version) throw new Error("FORMAT");
+    return updateStored("updateInfo", value => ({...updateRecord(value), skipped: version}));
+  }
+  if (message.action === "switch" && currency) return updateSettings({manualSourceCurrency: currency, promptMuted: false});
+  if (message.action === "seen" && currency) {
+    await chrome.storage.local.set({steamCurrency: currency});
+    if (settings.promptMuted && settings.manualSourceCurrency === currency) return updateSettings({promptMuted: false});
+    return settings;
+  }
+  throw new Error("FORMAT");
+}
+
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  if (allowedSender(sender) && message?.type === "PAGE_ACTION") {
+    pageAction(message).then(() => respond({ok: true})).catch(() => respond({ok: false}));
+    return true;
+  }
   if (!allowedSender(sender) || !["GET_STATE", "REFRESH_RATES", "UPDATE_SETTINGS", "GET_PAIRS"].includes(message?.type)) return false;
   if (message.type !== "GET_STATE" && !sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`)) return false;
   if (message.type === "UPDATE_SETTINGS") {
@@ -301,7 +362,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
     loadPairs(message.pairs, message.force === true).then(state => respond({ok: true, state})).catch(() => respond({ok: false, error: "STORAGE"}));
     return true;
   }
-  loadState(message.sources, message.type === "REFRESH_RATES").then(state => respond({ok: true, state})).catch(() => respond({ok: false, error: "STORAGE"}));
+  const user = Boolean(sender.url?.startsWith(`chrome-extension://${chrome.runtime.id}/`));
+  loadState(message.sources, message.type === "REFRESH_RATES", user).then(state => respond({ok: true, state})).catch(() => respond({ok: false, error: "STORAGE"}));
   return true;
 });
 
@@ -351,13 +413,22 @@ chrome.storage.onChanged.addListener((changes, area) => {
   const settings = SteamFX.normalizeSettings(changes.settings.newValue);
   const previous = SteamFX.normalizeSettings(changes.settings.oldValue);
   refreshIcon(settings).catch(() => {});
-  const changed = previous.enabled !== settings.enabled || previous.manualEnabled !== settings.manualEnabled || previous.targetCurrency !== settings.targetCurrency;
+  if (settings.promptMuted && settings.manualSourceCurrency !== previous.manualSourceCurrency) {
+    chrome.storage.local.get("steamCurrency").then(({steamCurrency}) => {
+      if (steamCurrency === settings.manualSourceCurrency) updateSettings({promptMuted: false}).catch(() => {});
+    }).catch(() => {});
+  }
+  const changed = previous.manualEnabled !== settings.manualEnabled || previous.targetCurrency !== settings.targetCurrency;
   if (changed) requestEpoch++;
-  if (!isAutomatic(settings) || changed) for (const controller of controllers) controller.abort(new Error("CANCELLED"));
+  if (settings.manualEnabled || changed) for (const controller of controllers) controller.abort(new Error("CANCELLED"));
   scheduleRefresh().catch(() => {});
 });
 
 chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name === UPDATE_ALARM) {
+    checkUpdate().catch(() => {});
+    return;
+  }
   if (alarm.name !== ALARM) return;
   chrome.storage.local.get(["rateCache", "rateFailures"]).then(stored => {
     const keys = activeKeys(stored.rateCache, stored.rateFailures);
@@ -385,3 +456,5 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 refreshIcon().catch(() => {});
+
+scheduleUpdates().catch(() => {});
