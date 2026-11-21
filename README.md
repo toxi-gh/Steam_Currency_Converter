@@ -44,7 +44,7 @@ A short setup walks you through four steps: interface language, currencies, pric
 On the first visit to Steam, a welcome window explains what the extension does and that converted prices are for reference only. Prices are converted after you click **I agree, start using**.
 
 <div align="center">
-<img src="docs/images/setup.png" alt="First-run setup in four steps" width="620">
+<img src="docs/images/setup.png" alt="First-run setup in four steps" width="900">
 </div>
 
 ## Installation
